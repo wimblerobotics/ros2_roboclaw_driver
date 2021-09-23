@@ -1,0 +1,59 @@
+# The configuration file provides values for the two, differential
+# drive motors, 'm1' and 'm2'. See the article: 
+# https://resources.basicmicro.com/auto-tuning-with-motion-studio/
+# for a description of how to derive the p, i, d and qpps values.
+
+motor_driver_node:
+  ros__parameters:
+    # Incremental acceleration to use in quadrature pulses per second.
+    accel_quad_pulses_per_second: 1000
+
+    # The device name to be opened.
+    device_name: "/dev/roboclaw"
+
+    # The assigned port for the device (as configured on the RoboClaw).
+    device_port: 128
+
+    # The P, I, D and maximum quadrature pulses per second for both motors.
+    m1_p: 7.26239
+    m1_i: 1.36838
+    m1_d: 0.0
+    m1_qpps: 2437
+    m2_p: 7.26239
+    m2_i: 1.28767
+    m2_d: 0.0
+    m2_qpps: 2437
+
+
+    # The maximum expected current (in amps) for both motors.
+    # Used just to signal warnings.
+    m1_max_current: 6.0
+    m2_max_current: 6.0
+
+    # Rate limiting commands. The driver will clip any value
+    # exceeding these limits.
+    max_angular_velocity: 0.07
+    max_linear_velocity: 0.3
+
+    # If no new motor commands is received since the last motor
+    # command in this number of seconds, stop the motors.
+    max_seconds_uncommanded_travel: 0.25
+
+    # Based upon your particular motor gearing and encoders.
+    # These values are used to scale cmd_vel commands 
+    # and encoder values to motor commands and odometry, respectfully.
+    quad_pulses_per_meter: 1566
+    quad_pulses_per_revolution: 1000
+
+    # Based upon y our particular robot model.
+    # The wheel separation and radius, in meters.
+    wheel_radius: 0.10169
+    wheel_separation: 0.345
+    
+    # Topic name to be used to publish the RoboClaw status messages.
+    roboclaw_status_topic: "roboclaw_status"
+
+    # See: http://unixwiz.net/techtips/termios-vmin-vtime.html
+    vmin: 1
+    vtime: 2
+
