@@ -25,8 +25,6 @@ find_package(nav_msgs)
 find_package(rclcpp REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(tf2_msgs REQUIRED)
-find_package(tf2_ros REQUIRED)
 
 set(msg_files
   "msg/RoboClawStatus.msg"
@@ -37,10 +35,10 @@ set(srv_files
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/RoboClawStatus.msg"
-  "srv/ResetEncoders.srv"
-  DEPENDENCIES builtin_interfaces std_msgs
- )
+  ${msg_files}
+  ${srv_files}
+#  DEPENDENCIES builtin_interfaces std_msgs
+)
 
 add_executable(
   ros2_roboclaw_driver_node 
@@ -55,8 +53,6 @@ ament_target_dependencies(
   geometry_msgs
   nav_msgs
   std_msgs
-  tf2_msgs
-  tf2_ros
 )
 
 rosidl_target_interfaces(

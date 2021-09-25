@@ -8,7 +8,7 @@
 int main(int argc, char *argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::Node::SharedPtr node = rclcpp::Node::make_shared("ros2_roboclaw_driver");
+  rclcpp::Node::SharedPtr node = rclcpp::Node::make_shared("ros2_roboclaw_driver_node");
   MotorDriver &motorDriver = MotorDriver::singleton();
   motorDriver.onInit(node);
 

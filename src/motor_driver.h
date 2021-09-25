@@ -1,10 +1,8 @@
 #pragma once
 
 #include <stdint.h>
-#include <tf2_ros/transform_broadcaster.h>
 
 #include <geometry_msgs/msg/twist.hpp>
-#include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <string>
 
@@ -23,10 +21,7 @@ class MotorDriver : public rclcpp::Node {
 
   void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg) const;
 
-  void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
-
   uint32_t accel_quad_pulses_per_second_;
-  std::shared_ptr<tf2_ros::TransformBroadcaster> broadcaster_;
   std::string device_name_;
   uint8_t device_port_;
   float m1_p_;
@@ -53,7 +48,6 @@ class MotorDriver : public rclcpp::Node {
   rclcpp::Node::SharedPtr node_;
 
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmdVelSub_;
-  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odomSub_;
 
   static MotorDriver *g_singleton;
 };
