@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <chrono>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -34,6 +35,8 @@ MotorDriver::MotorDriver()
   this->declare_parameter<float>("max_linear_velocity", 0.0);
   this->declare_parameter<float>("m2_max_current", 0.0);
   this->declare_parameter<float>("max_seconds_uncommanded_travel", 0.0);
+  this->declare_parameter<bool>("publish_joint_states", true);
+  this->declare_parameter<bool>("publish_odom", true);
   this->declare_parameter<int>("quad_pulses_per_meter", 0);
   this->declare_parameter<int>("quad_pulses_per_revolution", 0);
   this->declare_parameter<int>("vmin", 1);
@@ -44,31 +47,33 @@ MotorDriver::MotorDriver()
 
 void MotorDriver::cmdVelCallback(
     const geometry_msgs::msg::Twist::SharedPtr msg) const {
-  double x_velocity =
-      std::min(std::max((float)msg->linear.x, -max_linear_velocity_),
-               max_linear_velocity_);
-  double yaw_velocity =
-      std::min(std::max((float)msg->angular.z, -max_angular_velocity_),
-               max_angular_velocity_);
-  if ((msg->linear.x == 0) && (msg->angular.z == 0)) {
-    roboclaw_->doMixedSpeedDist(0, 0, 0, 0);
-  } else if ((fabs(x_velocity) > 0.01) || (fabs(yaw_velocity) > 0.01)) {
-    const double m1_desired_velocity =
-        x_velocity - (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
-    const double m2_desired_velocity =
-        x_velocity + (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
+  if (RoboClaw::singleton() != nullptr) {
+    double x_velocity =
+        std::min(std::max((float)msg->linear.x, -max_linear_velocity_),
+                 max_linear_velocity_);
+    double yaw_velocity =
+        std::min(std::max((float)msg->angular.z, -max_angular_velocity_),
+                 max_angular_velocity_);
+    if ((msg->linear.x == 0) && (msg->angular.z == 0)) {
+      RoboClaw::singleton()->doMixedSpeedDist(0, 0, 0, 0);
+    } else if ((fabs(x_velocity) > 0.01) || (fabs(yaw_velocity) > 0.01)) {
+      const double m1_desired_velocity =
+          x_velocity - (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
+      const double m2_desired_velocity =
+          x_velocity + (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
 
-    const int32_t m1_quad_pulses_per_second =
-        m1_desired_velocity * quad_pulses_per_meter_;
-    const int32_t m2_quad_pulses_per_second =
-        m2_desired_velocity * quad_pulses_per_meter_;
-    const int32_t m1_max_distance =
-        fabs(m1_quad_pulses_per_second * max_seconds_uncommanded_travel_);
-    const int32_t m2_max_distance =
-        fabs(m2_quad_pulses_per_second * max_seconds_uncommanded_travel_);
-    roboclaw_->doMixedSpeedAccelDist(
-        accel_quad_pulses_per_second_, m1_quad_pulses_per_second,
-        m1_max_distance, m2_quad_pulses_per_second, m2_max_distance);
+      const int32_t m1_quad_pulses_per_second =
+          m1_desired_velocity * quad_pulses_per_meter_;
+      const int32_t m2_quad_pulses_per_second =
+          m2_desired_velocity * quad_pulses_per_meter_;
+      const int32_t m1_max_distance =
+          fabs(m1_quad_pulses_per_second * max_seconds_uncommanded_travel_);
+      const int32_t m2_max_distance =
+          fabs(m2_quad_pulses_per_second * max_seconds_uncommanded_travel_);
+      RoboClaw::singleton()->doMixedSpeedAccelDist(
+          accel_quad_pulses_per_second_, m1_quad_pulses_per_second,
+          m1_max_distance, m2_quad_pulses_per_second, m2_max_distance);
+    }
   }
 }
 
@@ -93,6 +98,8 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
   this->get_parameter("max_linear_velocity", max_linear_velocity_);
   this->get_parameter("max_seconds_uncommanded_travel",
                       max_seconds_uncommanded_travel_);
+  this->get_parameter("publish_joint_states", publish_joint_states_);
+  this->get_parameter("publish_dom", publish_odom_);
   this->get_parameter("quad_pulses_per_meter", quad_pulses_per_meter_);
   this->get_parameter("quad_pulses_per_revolution",
                       quad_pulses_per_revolution_);
@@ -119,6 +126,8 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
   RCUTILS_LOG_INFO("max_linear_velocity: %f", max_linear_velocity_);
   RCUTILS_LOG_INFO("max_seconds_uncommanded_travel: %f",
                    max_seconds_uncommanded_travel_);
+  RCUTILS_LOG_INFO("publish_joint_states: %s",
+                   publish_joint_states_ ? "True" : "False");
   RCUTILS_LOG_INFO("quad_pulses_per_meter: %d", quad_pulses_per_meter_);
   RCUTILS_LOG_INFO("quad_pulses_per_revolution: %d",
                    quad_pulses_per_revolution_);
@@ -130,18 +139,75 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
   RoboClaw::TPIDQ m1Pid = {m1_p_, m1_i_, m1_d_, m1_qpps_, m1_max_current_};
   RoboClaw::TPIDQ m2Pid = {m2_p_, m2_i_, m2_d_, m2_qpps_, m2_max_current_};
 
-  roboclaw_ = new RoboClaw(m1Pid, m2Pid, m1_max_current_, m2_max_current_,
-                           device_name_.c_str(), device_port_, vmin_, vtime_);
-  RCUTILS_LOG_INFO("Main battery: %f", roboclaw_->getMainBatteryLevel());
+  new RoboClaw(m1Pid, m2Pid, m1_max_current_, m2_max_current_,
+               device_name_.c_str(), device_port_, vmin_, vtime_);
+  RCUTILS_LOG_INFO("Main battery: %f",
+                   RoboClaw::singleton()->getMainBatteryLevel());
 
-  rclcpp::QoS bestEffortQos(10);
-  bestEffortQos.keep_last(10);
-  bestEffortQos.best_effort();
-  bestEffortQos.durability_volatile();
+  auto qos = rclcpp::QoS(
+      rclcpp::QoSInitialization(RMW_QOS_POLICY_HISTORY_KEEP_LAST, 10));
+  qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
+  qos.durability(RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
+  qos.avoid_ros_namespace_conventions(false);
 
   cmdVelSub_ = node_->create_subscription<geometry_msgs::msg::Twist>(
-      "/cmd_vel", bestEffortQos,
+      "/cmd_vel", qos,
       std::bind(&MotorDriver::cmdVelCallback, this, std::placeholders::_1));
+
+  if (publish_joint_states_) {
+    joint_state_publisher_ =
+        this->create_publisher<sensor_msgs::msg::JointState>("JointStates",
+                                                             qos);
+  }
+
+  if (publish_odom_) {
+    odom_publisher_ =
+        this->create_publisher<nav_msgs::msg::Odometry>("odom", qos);
+  }
+
+  if (publish_joint_states_ || publish_odom_) {
+    this->publisher_thread_ = std::thread(&MotorDriver::publisherThread);
+  }
+}
+
+void MotorDriver::publisherThread() {
+  static rclcpp::Clock::SharedPtr clock =
+      std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
+  rclcpp::WallRate loop_rate(20);
+  rclcpp::Time now = clock->now();
+  rclcpp::Time last_time = now;
+
+  while (rclcpp::ok()) {
+    loop_rate.sleep();
+    if (RoboClaw::singleton() != nullptr) {
+      RoboClaw::singleton()->readSensorGroup();
+
+      nav_msgs::msg::Odometry odometry_msg;
+      sensor_msgs::msg::JointState joint_state_msg;
+
+      odometry_msg.header.stamp = clock->now();
+      odometry_msg.header.frame_id = "base_link";
+
+      joint_state_msg.header.stamp = clock->now();
+      joint_state_msg.header.frame_id = "base_link";
+
+      if (g_singleton->publish_joint_states_) {
+        float encoder_left = RoboClaw::singleton()->getM1Encoder() * 1.0;
+        float encoder_right = RoboClaw::singleton()->getM2Encoder() * 1.0;
+        double radians_left =
+            (encoder_left / g_singleton->quad_pulses_per_revolution_) * 2.0 *
+            M_PI;
+        double radians_right =
+            (encoder_right / g_singleton->quad_pulses_per_revolution_) * 2.0 *
+            M_PI;
+        joint_state_msg.name.push_back("front_left_wheel");
+        joint_state_msg.name.push_back("front_right_wheel");
+        joint_state_msg.position.push_back(radians_left);
+        joint_state_msg.position.push_back(radians_right);
+        g_singleton->joint_state_publisher_->publish(joint_state_msg);
+      }
+    }
+  }
 }
 
 MotorDriver &MotorDriver::singleton() {

@@ -33,68 +33,44 @@ int main(int argc, char *argv[])
   {
     try
     {
-      roboClawStatus.logic_battery_voltage = motorDriver.roboClaw().getLogicBatteryLevel();
-      roboClawStatus.main_battery_voltage = motorDriver.roboClaw().getMainBatteryLevel();
-      RoboClaw::TMotorCurrents motorCurrents = motorDriver.roboClaw().getMotorCurrents();
+      roboClawStatus.logic_battery_voltage = RoboClaw::singleton()->getLogicBatteryLevel();
+      roboClawStatus.main_battery_voltage = RoboClaw::singleton()->getMainBatteryLevel();
+      RoboClaw::TMotorCurrents motorCurrents = RoboClaw::singleton()->getMotorCurrents();
       roboClawStatus.m1_motor_current = motorCurrents.m1Current;
       roboClawStatus.m2_motor_current = motorCurrents.m2Current;
 
-      RoboClaw::TPIDQ pidq = motorDriver.roboClaw().getPIDQ(RoboClaw::kGETM1PID);
+      RoboClaw::TPIDQ pidq = RoboClaw::singleton()->getPIDQ(RoboClaw::kGETM1PID);
       roboClawStatus.m1_p = pidq.p / 65536.0;
       roboClawStatus.m1_i = pidq.i / 65536.0;
       roboClawStatus.m1_d = pidq.d / 65536.0;
       roboClawStatus.m1_qpps = pidq.qpps;
 
-      pidq = motorDriver.roboClaw().getPIDQ(RoboClaw::kGETM2PID);
+      pidq = RoboClaw::singleton()->getPIDQ(RoboClaw::kGETM2PID);
       roboClawStatus.m2_p = pidq.p / 65536.0;
       roboClawStatus.m2_i = pidq.i / 65536.0;
       roboClawStatus.m2_d = pidq.d / 65536.0;
       roboClawStatus.m2_qpps = pidq.qpps;
 
-      roboClawStatus.temperature = motorDriver.roboClaw().getTemperature();
+      roboClawStatus.temperature = RoboClaw::singleton()->getTemperature();
 
       {
-        RoboClaw::EncodeResult encoder = motorDriver.roboClaw().getEncoderCommandResult(RoboClaw::kGETM1ENC);
+        RoboClaw::EncodeResult encoder = RoboClaw::singleton()->getEncoderCommandResult(RoboClaw::kGETM1ENC);
         roboClawStatus.m1_encoder_value = encoder.value;
         roboClawStatus.m1_encoder_status = encoder.status;
       }
 
       {
-        RoboClaw::EncodeResult encoder = motorDriver.roboClaw().getEncoderCommandResult(RoboClaw::kGETM2ENC);
+        RoboClaw::EncodeResult encoder = RoboClaw::singleton()->getEncoderCommandResult(RoboClaw::kGETM2ENC);
         roboClawStatus.m2_encoder_value = encoder.value;
         roboClawStatus.m2_encoder_status = encoder.status;
       }
 
-      roboClawStatus.m1_current_speed = motorDriver.roboClaw().getVelocity(RoboClaw::kGETM1SPEED);
-      roboClawStatus.m2_current_speed = motorDriver.roboClaw().getVelocity(RoboClaw::kGETM2SPEED);
+      roboClawStatus.m1_current_speed = RoboClaw::singleton()->getVelocity(RoboClaw::kGETM1SPEED);
+      roboClawStatus.m2_current_speed = RoboClaw::singleton()->getVelocity(RoboClaw::kGETM2SPEED);
 
-      roboClawStatus.error_string = motorDriver.roboClaw().getErrorString();
+      roboClawStatus.error_string = RoboClaw::singleton()->getErrorString();
 
       statusPublisher->publish(roboClawStatus);
-
-
-      if (motorDriver.roboClaw().motorAlarms() != 0)
-      {
-        if (motorDriver.roboClaw().motorAlarms() & RoboClaw::kM1_OVER_CURRENT)
-        {
-          RCUTILS_LOG_ERROR("[motor_driver_node] M1_OVER_CURRENT");
-        }
-
-        if (motorDriver.roboClaw().motorAlarms() & RoboClaw::kM2_OVER_CURRENT)
-        {
-          RCUTILS_LOG_ERROR("[motor_driver_node] M2_OVER_CURRENT");
-        }
-
-        if (motorDriver.roboClaw().motorAlarms() & RoboClaw::kM1_OVER_CURRENT_ALARM)
-        {
-          RCUTILS_LOG_ERROR("[motor_driver_node] M1_OVER_CURRENT_ALARM");
-        }
-
-        if (motorDriver.roboClaw().motorAlarms() & RoboClaw::kM2_OVER_CURRENT_ALARM)
-        {
-          RCUTILS_LOG_ERROR("[motor_driver_node] M2_OVER_CURRENT_ALARM");
-        }
-      }
     }
     catch (RoboClaw::TRoboClawException *e)
     {

@@ -24,6 +24,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs)
 find_package(rclcpp REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
 set(msg_files
@@ -37,7 +38,6 @@ set(srv_files
 rosidl_generate_interfaces(${PROJECT_NAME}
   ${msg_files}
   ${srv_files}
-#  DEPENDENCIES builtin_interfaces std_msgs
 )
 
 add_executable(
@@ -52,6 +52,7 @@ ament_target_dependencies(
   rclcpp
   geometry_msgs
   nav_msgs
+  sensor_msgs
   std_msgs
 )
 

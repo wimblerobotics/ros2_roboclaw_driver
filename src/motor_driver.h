@@ -3,7 +3,9 @@
 #include <stdint.h>
 
 #include <geometry_msgs/msg/twist.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/joint_state.hpp>
 #include <string>
 
 #include "roboclaw.h"
@@ -14,16 +16,18 @@ class MotorDriver : public rclcpp::Node {
 
   void onInit(rclcpp::Node::SharedPtr node);
 
-  RoboClaw &roboClaw() { return *roboclaw_; }
-
  private:
   MotorDriver();
 
   void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg) const;
 
+  // For publishing odom, joint state, etc.
+  static void publisherThread();
+
   uint32_t accel_quad_pulses_per_second_;
   std::string device_name_;
   uint8_t device_port_;
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_publisher_;
   float m1_p_;
   float m1_i_;
   float m1_d_;
@@ -37,9 +41,12 @@ class MotorDriver : public rclcpp::Node {
   float max_angular_velocity_;  // Maximum allowed angular velocity.
   float max_linear_velocity_;   // Maximum allowed linear velocity.
   double max_seconds_uncommanded_travel_;
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_publisher_;
+  bool publish_odom_;
+  bool publish_joint_states_;
+  std::thread publisher_thread_;  // For publishing odom, joint state, etc.
   uint32_t quad_pulses_per_meter_;
   uint32_t quad_pulses_per_revolution_;
-  RoboClaw *roboclaw_;
   uint8_t vmin_;
   uint8_t vtime_;
   double wheel_radius_;

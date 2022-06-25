@@ -41,6 +41,8 @@ RoboClaw::RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
   resetRequest.right = 0;
   ros2_roboclaw_driver::srv::ResetEncoders::Response response;
   resetEncoders(resetRequest, response);
+  g_singleton = this;
+  readSensorGroup();
 }
 
 RoboClaw::~RoboClaw() {}
@@ -70,6 +72,15 @@ void RoboClaw::doMixedSpeedAccelDist(uint32_t accel_quad_pulses_per_second,
 }
 
 RoboClaw::EncodeResult RoboClaw::getEncoderCommandResult(WHICH_ENC command) {
+  if (command == kGETM1ENC) {
+    return g_sensor_value_group_.m1_encoder_command_result;
+  } else {
+    return g_sensor_value_group_.m2_encoder_command_result;
+  }
+}
+
+RoboClaw::EncodeResult RoboClaw::cache_getEncoderCommandResult(
+    WHICH_ENC command) {
   uint16_t crc = 0;
   updateCrc(crc, portAddress_);
   updateCrc(crc, command);
@@ -114,6 +125,10 @@ RoboClaw::EncodeResult RoboClaw::getEncoderCommandResult(WHICH_ENC command) {
 }
 
 uint16_t RoboClaw::getErrorStatus() {
+  return g_sensor_value_group_.error_status;
+}
+
+uint16_t RoboClaw::cache_getErrorStatus() {
   for (int retry = 0; retry < maxCommandRetries_; retry++) {
     try {
       uint16_t crc = 0;
@@ -150,6 +165,10 @@ uint16_t RoboClaw::getErrorStatus() {
 }
 
 std::string RoboClaw::getErrorString() {
+  return g_sensor_value_group_.error_string;
+}
+
+std::string RoboClaw::cache_getErrorString() {
   uint16_t errorStatus = getErrorStatus();
   if (errorStatus == 0)
     return "normal";
@@ -230,6 +249,10 @@ std::string RoboClaw::getErrorString() {
 }
 
 float RoboClaw::getLogicBatteryLevel() {
+  return g_sensor_value_group_.logic_battery_level;
+}
+
+float RoboClaw::cache_getLogicBatteryLevel() {
   int retry;
 
   for (retry = 0; retry < maxCommandRetries_; retry++) {
@@ -252,7 +275,9 @@ float RoboClaw::getLogicBatteryLevel() {
       "[RoboClaw::getLogicBatteryLevel] RETRY COUNT EXCEEDED");
 }
 
-int32_t RoboClaw::getM1Encoder() {
+int32_t RoboClaw::getM1Encoder() { return g_sensor_value_group_.m1_encoder; }
+
+int32_t RoboClaw::cache_getM1Encoder() {
   int retry;
 
   for (retry = 0; retry < maxCommandRetries_; retry++) {
@@ -273,6 +298,10 @@ int32_t RoboClaw::getM1Encoder() {
 }
 
 float RoboClaw::getMainBatteryLevel() {
+  return g_sensor_value_group_.main_battery_level;
+}
+
+float RoboClaw::cache_getMainBatteryLevel() {
   int retry;
 
   for (retry = 0; retry < maxCommandRetries_; retry++) {
@@ -329,6 +358,10 @@ unsigned short RoboClaw::get2ByteCommandResult(uint8_t command) {
 }
 
 RoboClaw::TMotorCurrents RoboClaw::getMotorCurrents() {
+  return g_sensor_value_group_.motor_currents;
+}
+
+RoboClaw::TMotorCurrents RoboClaw::cache_getMotorCurrents() {
   int retry;
 
   for (retry = 0; retry < maxCommandRetries_; retry++) {
@@ -375,6 +408,14 @@ RoboClaw::TMotorCurrents RoboClaw::getMotorCurrents() {
 }
 
 RoboClaw::TPIDQ RoboClaw::getPIDQ(WHICH_MOTOR whichMotor) {
+  if (whichMotor == kGETM1PID) {
+    return g_sensor_value_group_.m1_pidq;
+  } else {
+    return g_sensor_value_group_.m2_pidq;
+  }
+}
+
+RoboClaw::TPIDQ RoboClaw::cache_getPIDQ(WHICH_MOTOR whichMotor) {
   int retry;
 
   for (retry = 0; retry < maxCommandRetries_; retry++) {
@@ -415,7 +456,9 @@ RoboClaw::TPIDQ RoboClaw::getPIDQ(WHICH_MOTOR whichMotor) {
   throw new TRoboClawException("[RoboClaw::getPIDQ] RETRY COUNT EXCEEDED");
 }
 
-float RoboClaw::getTemperature() {
+float RoboClaw::getTemperature() { return g_sensor_value_group_.temperature; }
+
+float RoboClaw::cache_getTemperature() {
   int retry;
 
   for (retry = 0; retry < maxCommandRetries_; retry++) {
@@ -514,6 +557,14 @@ uint32_t RoboClaw::getULongCont(uint16_t &crc) {
 }
 
 int32_t RoboClaw::getVelocity(WHICH_VELOCITY whichVelocity) {
+  if (whichVelocity == kGETM1SPEED) {
+    return g_sensor_value_group_.m1_velocity;
+  } else {
+    return g_sensor_value_group_.m2_speed;
+  }
+}
+
+int32_t RoboClaw::cache_getVelocity(WHICH_VELOCITY whichVelocity) {
   int retry;
 
   for (retry = 0; retry < maxCommandRetries_; retry++) {
@@ -577,7 +628,9 @@ int32_t RoboClaw::getVelocityResult(uint8_t command) {
   return 0;
 }
 
-int32_t RoboClaw::getM2Encoder() {
+int32_t RoboClaw::getM2Encoder() { return g_sensor_value_group_.m2_encoder; }
+
+int32_t RoboClaw::cache_getM2Encoder() {
   int retry;
 
   for (retry = 0; retry < maxCommandRetries_; retry++) {
@@ -798,6 +851,37 @@ uint8_t RoboClaw::readByteWithTimeout() {
   return 0;
 }
 
+void RoboClaw::readSensorGroup() {
+  if (singleton() != nullptr) {
+    g_sensor_value_group_.error_status = singleton()->cache_getErrorStatus();
+    g_sensor_value_group_.error_string = singleton()->cache_getErrorString();
+    g_sensor_value_group_.logic_battery_level =
+        singleton()->cache_getLogicBatteryLevel();
+    g_sensor_value_group_.m1_encoder = singleton()->cache_getM1Encoder();
+    g_sensor_value_group_.m1_encoder_command_result =
+        singleton()->cache_getEncoderCommandResult(kGETM1ENC);
+    g_sensor_value_group_.m1_pidq = singleton()->cache_getPIDQ(kGETM1PID);
+    g_sensor_value_group_.m1_velocity =
+        singleton()->cache_getVelocity(RoboClaw::kGETM1SPEED);
+    g_sensor_value_group_.m2_encoder = singleton()->cache_getM2Encoder();
+    g_sensor_value_group_.m2_encoder_command_result =
+        singleton()->cache_getEncoderCommandResult(kGETM2ENC);
+    g_sensor_value_group_.m1_pidq = singleton()->cache_getPIDQ(kGETM2PID);
+    g_sensor_value_group_.m2_speed =
+        singleton()->cache_getVelocity(RoboClaw::kGETM2SPEED);
+    g_sensor_value_group_.main_battery_level =
+        singleton()->cache_getMainBatteryLevel();
+
+    // Call getMotorCurrents before getMotorAlarms;
+    g_sensor_value_group_.motor_currents = singleton()->cache_getMotorCurrents();
+    g_sensor_value_group_.motor_alarms = singleton()->getMotorAlarms();
+
+    g_sensor_value_group_.temperature = singleton()->cache_getTemperature();
+    g_sensor_value_group_.last_sensor_read_time_ =
+        std::chrono::system_clock::now();
+  }
+}
+
 bool RoboClaw::resetEncoders(
     ros2_roboclaw_driver::srv::ResetEncoders::Request &request,
     ros2_roboclaw_driver::srv::ResetEncoders::Response &response) {
@@ -964,3 +1048,8 @@ void RoboClaw::writeN(bool sendCRC, uint8_t cnt, ...) {
 
   fcntl(device_port_, F_SETFL, origFlags);
 }
+
+RoboClaw *RoboClaw::singleton() { return g_singleton; }
+
+RoboClaw::SensorValueGroup RoboClaw::g_sensor_value_group_;
+RoboClaw *RoboClaw::g_singleton = nullptr;
