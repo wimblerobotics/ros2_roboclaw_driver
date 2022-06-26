@@ -9,6 +9,7 @@
 #include <chrono>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
+#include <rclcpp/qos.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <string>
 
@@ -146,8 +147,8 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
 
   auto qos = rclcpp::QoS(
       rclcpp::QoSInitialization(RMW_QOS_POLICY_HISTORY_KEEP_LAST, 10));
-  qos.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
-  qos.durability(RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
+  qos.reliability(RMW_QOS_POLICY_RELIABILITY_RELIABLE);
+  qos.durability(rclcpp::DurabilityPolicy::Volatile);
   qos.avoid_ros_namespace_conventions(false);
 
   cmdVelSub_ = node_->create_subscription<geometry_msgs::msg::Twist>(
@@ -156,7 +157,7 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
 
   if (publish_joint_states_) {
     joint_state_publisher_ =
-        this->create_publisher<sensor_msgs::msg::JointState>("JointStates",
+        this->create_publisher<sensor_msgs::msg::JointState>("puck_joint_states",
                                                              qos);
   }
 
