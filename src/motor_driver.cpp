@@ -39,7 +39,7 @@ MotorDriver::MotorDriver()
   this->declare_parameter<bool>("publish_joint_states", true);
   this->declare_parameter<bool>("publish_odom", true);
   this->declare_parameter<int>("quad_pulses_per_meter", 0);
-  this->declare_parameter<int>("quad_pulses_per_revolution", 0);
+  this->declare_parameter<float>("quad_pulses_per_revolution", 0);
   this->declare_parameter<int>("vmin", 1);
   this->declare_parameter<int>("vtime", 2);
   this->declare_parameter<float>("wheel_radius", 0.0);
@@ -130,7 +130,7 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
   RCUTILS_LOG_INFO("publish_joint_states: %s",
                    publish_joint_states_ ? "True" : "False");
   RCUTILS_LOG_INFO("quad_pulses_per_meter: %d", quad_pulses_per_meter_);
-  RCUTILS_LOG_INFO("quad_pulses_per_revolution: %d",
+  RCUTILS_LOG_INFO("quad_pulses_per_revolution: %3.4f",
                    quad_pulses_per_revolution_);
   RCUTILS_LOG_INFO("vmin: %d", vmin_);
   RCUTILS_LOG_INFO("vtime: %d", vtime_);
@@ -196,10 +196,10 @@ void MotorDriver::publisherThread() {
         float encoder_left = RoboClaw::singleton()->getM1Encoder() * 1.0;
         float encoder_right = RoboClaw::singleton()->getM2Encoder() * 1.0;
         double radians_left =
-            (encoder_left / g_singleton->quad_pulses_per_revolution_) * 2.0 *
+            ((encoder_left * 1.0)/ g_singleton->quad_pulses_per_revolution_) * 2.0 *
             M_PI;
         double radians_right =
-            (encoder_right / g_singleton->quad_pulses_per_revolution_) * 2.0 *
+            ((encoder_right * 1.0) / g_singleton->quad_pulses_per_revolution_) * 2.0 *
             M_PI;
         joint_state_msg.name.push_back("front_left_wheel");
         joint_state_msg.name.push_back("front_right_wheel");
