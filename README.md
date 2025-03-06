@@ -19,7 +19,7 @@ It is recommented to create a new overlay workspace on top of your curreent ROS 
 
 ```
 mkdir -p ~/ros2_roboclaw_driver/src
-cd ~/rosbag_ws_driver/src
+cd ~/ros2_roboclaw_driver/src
 git clone https://github.com/wimblerobotics/ros2_roboclaw_driver.git
 cd ..
 rosdep install --from-paths src --ignore-src -r -y
