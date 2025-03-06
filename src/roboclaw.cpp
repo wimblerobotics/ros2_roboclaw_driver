@@ -22,15 +22,13 @@
 
 RoboClaw::RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
                    float m2MaxCurrent, std::string device_name,
-                   uint8_t device_port, uint8_t vmin, uint8_t vtime)
+                   uint8_t device_port)
     : device_port_(device_port),
       maxCommandRetries_(3),
       maxM1Current_(m1MaxCurrent),
       maxM2Current_(m2MaxCurrent),
       device_name_(device_name),
-      portAddress_(128),
-      vmin_(vmin),
-      vtime_(vtime) {
+      portAddress_(128) {
   openPort();
   RCUTILS_LOG_INFO("[RoboClaw::RoboClaw] RoboClaw software version: %s",
                    getVersion().c_str());
@@ -705,7 +703,7 @@ std::string RoboClaw::getVersion() {
 void RoboClaw::openPort() {
   RCUTILS_LOG_INFO("[RoboClaw::openPort] about to open port: %s",
                    device_name_.c_str());
-  device_port_ = open(device_name_.c_str(), O_RDWR | O_NOCTTY | O_SYNC);
+  device_port_ = open(device_name_.c_str(), O_RDWR | O_NOCTTY | O_NDELAY);
   if (device_port_ < 0) {
     RCUTILS_LOG_ERROR(
         "[RoboClaw::openPort] Unable to open USB port: %s, errno: (%d) "
@@ -725,48 +723,8 @@ void RoboClaw::openPort() {
         "[RoboClaw::openPort] Unable to get terminal options "
         "(tcgetattr), error: %d: %s",
         errno, strerror(errno));
-    // throw new TRoboClawException("[RoboClaw::openPort] Unable to get
-    // terminal options (tcgetattr)");
+    throw new TRoboClawException("[RoboClaw::openPort] Unable to get terminal options (tcgetattr)");
   }
-
-  // c_cflag contains a few important things- CLOCAL and CREAD, to prevent
-  //   this program from "owning" the port and to enable receipt of data.
-  //   Also, it holds the settings for number of data bits, parity, stop bits,
-  //   and hardware flow control.
-  portOptions.c_cflag |= CLOCAL;    // Prevent changing ownership.
-  portOptions.c_cflag |= CREAD;     // Enable reciever.
-  portOptions.c_cflag &= ~CRTSCTS;  // Disable hardware CTS/RTS flow control.
-  portOptions.c_cflag |= CS8;       // Enable 8 bit characters.
-  portOptions.c_cflag &= ~CSIZE;    // Remove size flag.
-  portOptions.c_cflag &= ~CSTOPB;   // Disable 2 stop bits.
-  portOptions.c_cflag |=
-      HUPCL;  // Enable lower control lines on close - hang up.
-  portOptions.c_cflag &= ~PARENB;  // Disable parity.
-
-  // portOptions.c_iflag |= BRKINT;
-  portOptions.c_iflag &= ~IGNBRK;             // Disable ignoring break.
-  portOptions.c_iflag &= ~IGNCR;              // Disable ignoring CR;
-  portOptions.c_iflag &= ~(IGNPAR | PARMRK);  // Disable parity checks.
-                                              // portOptions.c_iflag |= IGNPAR;
-  portOptions.c_iflag &= ~(INLCR | ICRNL);    // Disable translating NL <-> CR.
-  portOptions.c_iflag &= ~INPCK;              // Disable parity checking.
-  portOptions.c_iflag &= ~ISTRIP;             // Disable stripping 8th bit.
-  portOptions.c_iflag &= ~(IXON | IXOFF);     // disable XON/XOFF flow control
-
-  portOptions.c_lflag &= ~ECHO;    // Disable echoing characters.
-  portOptions.c_lflag &= ~ECHONL;  // ??
-  portOptions.c_lflag &= ~ICANON;  // Disable canonical mode - line by line.
-  portOptions.c_lflag &= ~IEXTEN;  // Disable input processing
-  portOptions.c_lflag &= ~ISIG;    // Disable generating signals.
-  portOptions.c_lflag &= ~NOFLSH;  // Disable flushing on SIGINT.
-
-  portOptions.c_oflag &= ~OFILL;            // Disable fill characters.
-  portOptions.c_oflag &= ~(ONLCR | OCRNL);  // Disable translating NL <-> CR.
-  portOptions.c_oflag &= ~OPOST;            // Disable output processing.
-
-  portOptions.c_cc[VKILL] = 8;
-  portOptions.c_cc[VMIN] = vmin_;
-  portOptions.c_cc[VTIME] = vtime_;
 
   if (cfsetispeed(&portOptions, B38400) < 0) {
     RCUTILS_LOG_ERROR(
@@ -786,16 +744,58 @@ void RoboClaw::openPort() {
         "(cfsetospeed)");
   }
 
-  // Now that we've populated our options structure, let's push it back to the
-  // system.
-  if (tcsetattr(device_port_, TCSANOW, &portOptions) < 0) {
+  
+  // Configure other settings
+  portOptions.c_cflag &= ~PARENB; // Disable parity.
+  portOptions.c_cflag &= ~CSTOPB; // 1 stop bit
+  portOptions.c_cflag &= ~CSIZE;  // Clear data size bits
+  portOptions.c_cflag |= CS8;    // 8 data bits
+  portOptions.c_cflag &= ~CRTSCTS; // Disable hardware flow control
+  portOptions.c_cflag |= CREAD | CLOCAL; // Enable read and ignore control lines
+  
+  portOptions.c_lflag &= ~ICANON; // Disable canonical mode
+  portOptions.c_lflag &= ~ECHO;   // Disable echo
+  portOptions.c_lflag &= ~ECHOE;  // Disable erasure
+  portOptions.c_lflag &= ~ECHONL; // Disable new-line echo
+  portOptions.c_lflag &= ~ISIG;   // Disable interpretation of INTR, QUIT and SUSP
+  
+  portOptions.c_iflag &= ~(IXON | IXOFF | IXANY); // Disable software flow control
+  portOptions.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL); // Disable special handling of received bytes
+  
+  portOptions.c_oflag &= ~OPOST; // Disable output processing
+  
+  portOptions.c_cc[VMIN] = 0;  // Non-blocking read
+  portOptions.c_cc[VTIME] = 5; // Timeout of 0.5 seconds
+  
+  if (tcsetattr(  device_port_ , TCSANOW, &portOptions) != 0) {
     RCUTILS_LOG_ERROR(
         "[RoboClaw::openPort] Unable to set terminal options "
         "(tcsetattr)");
     throw new TRoboClawException(
         "[RoboClaw::openPort] Unable to set terminal options "
         "(tcsetattr)");
-  }
+}
+
+  // // c_cflag contains a few important things- CLOCAL and CREAD, to prevent
+  // //   this program from "owning" the port and to enable receipt of data.
+  // //   Also, it holds the settings for number of data bits, parity, stop bits,
+  // //   and hardware flow control.
+  // portOptions.c_cflag |=
+  //     HUPCL;  // Enable lower control lines on close - hang up.
+
+  // portOptions.c_iflag &= ~(IGNPAR);  // Disable parity checks.
+  //                                             // portOptions.c_iflag |= IGNPAR;
+  // portOptions.c_iflag &= ~INPCK;              // Disable parity checking.
+
+  // portOptions.c_lflag &= ~IEXTEN;  // Disable input processing
+  // portOptions.c_lflag &= ~NOFLSH;  // Disable flushing on SIGINT.
+
+  // portOptions.c_oflag &= ~OFILL;            // Disable fill characters.
+  // portOptions.c_oflag &= ~(ONLCR | OCRNL);  // Disable translating NL <-> CR.
+
+  // portOptions.c_cc[VKILL] = 8;
+
+
 }
 
 uint8_t RoboClaw::readByteWithTimeout() {

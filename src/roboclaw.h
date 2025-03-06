@@ -74,8 +74,7 @@ class RoboClaw {
 
   // Constructor.
   RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
-           float m2MaxCurrent, std::string device_name, uint8_t device_port,
-           uint8_t vmin, uint8_t vtime);
+           float m2MaxCurrent, std::string device_name, uint8_t device_port);
 
   ~RoboClaw();
 
@@ -282,8 +281,6 @@ class RoboClaw {
   int motorAlarms_;          // Motors alarms. Bit-wise OR of contributors.
   std::string device_name_;  // Device name of RoboClaw device.
   int portAddress_;          // Port number of RoboClaw device under control
-  int vmin_;                 // Terminal control value.
-  int vtime_;                // Terminal control value.
 
   // Get velocity (speed) result from the RoboClaw controller.
   int32_t getVelocityResult(uint8_t command);

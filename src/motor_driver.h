@@ -47,8 +47,6 @@ class MotorDriver : public rclcpp::Node {
   std::thread publisher_thread_;  // For publishing odom, joint state, etc.
   uint32_t quad_pulses_per_meter_;
   float quad_pulses_per_revolution_;
-  uint8_t vmin_;
-  uint8_t vtime_;
   double wheel_radius_;
   double wheel_separation_;
 

@@ -232,7 +232,7 @@ motor_driver_node:
     # These values are used to scale cmd_vel commands 
     # and encoder values to motor commands and odometry, respectfully.
     quad_pulses_per_meter: 1566
-    quad_pulses_per_revolution: 1000
+    quad_pulses_per_revolution: 979.62
 
     # Based upon y our particular robot model.
     # The wheel separation and radius, in meters.
@@ -241,10 +241,6 @@ motor_driver_node:
     
     # Topic name to be used to publish the RoboClaw status messages.
     roboclaw_status_topic: "roboclaw_status"
-
-    # See: http://unixwiz.net/techtips/termios-vmin-vtime.html
-    vmin: 1
-    vtime: 2
 ```
 # Miscellaneous notes
 The driver keeps track of the encoder values for the left and right

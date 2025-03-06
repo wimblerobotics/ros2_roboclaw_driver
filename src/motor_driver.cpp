@@ -40,8 +40,6 @@ MotorDriver::MotorDriver()
   this->declare_parameter<bool>("publish_odom", true);
   this->declare_parameter<int>("quad_pulses_per_meter", 0);
   this->declare_parameter<float>("quad_pulses_per_revolution", 0);
-  this->declare_parameter<int>("vmin", 1);
-  this->declare_parameter<int>("vtime", 2);
   this->declare_parameter<float>("wheel_radius", 0.0);
   this->declare_parameter<float>("wheel_separation", 0.0);
 }
@@ -104,8 +102,6 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
   this->get_parameter("quad_pulses_per_meter", quad_pulses_per_meter_);
   this->get_parameter("quad_pulses_per_revolution",
                       quad_pulses_per_revolution_);
-  this->get_parameter("vmin", vmin_);
-  this->get_parameter("vtime", vtime_);
   this->get_parameter("wheel_radius", wheel_radius_);
   this->get_parameter("wheel_separation", wheel_separation_);
 
@@ -132,8 +128,6 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
   RCUTILS_LOG_INFO("quad_pulses_per_meter: %d", quad_pulses_per_meter_);
   RCUTILS_LOG_INFO("quad_pulses_per_revolution: %3.4f",
                    quad_pulses_per_revolution_);
-  RCUTILS_LOG_INFO("vmin: %d", vmin_);
-  RCUTILS_LOG_INFO("vtime: %d", vtime_);
   RCUTILS_LOG_INFO("wheel_radius: %f", wheel_radius_);
   RCUTILS_LOG_INFO("wheel_separation: %f", wheel_separation_);
 
@@ -141,7 +135,7 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
   RoboClaw::TPIDQ m2Pid = {m2_p_, m2_i_, m2_d_, m2_qpps_, m2_max_current_};
 
   new RoboClaw(m1Pid, m2Pid, m1_max_current_, m2_max_current_,
-               device_name_.c_str(), device_port_, vmin_, vtime_);
+               device_name_.c_str(), device_port_);
   RCUTILS_LOG_INFO("Main battery: %f",
                    RoboClaw::singleton()->getMainBatteryLevel());
 
