@@ -40,6 +40,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   ${srv_files}
 )
 
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
+
 add_executable(
   ros2_roboclaw_driver_node 
   src/motor_driver_node.cpp
@@ -56,11 +58,7 @@ ament_target_dependencies(
   std_msgs
 )
 
-rosidl_target_interfaces(
-  ros2_roboclaw_driver_node
-  ${PROJECT_NAME}
-  "rosidl_typesupport_cpp"
-)
+target_link_libraries(ros2_roboclaw_driver_node "${cpp_typesupport_target}")
 
 # Install config files.
 install(DIRECTORY
