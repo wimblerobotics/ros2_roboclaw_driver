@@ -253,3 +253,82 @@ by this package.
 
 Do not expect the encoder
 values to be the same between node instantiations for this driver package.
+
+# Enabling UARTS on the Raspberry Pi
+
+## For the Raspberry Pi 5
+
+There are at least two UARTs you can use with the Raspberry Pi. To use them, you need to add lines to the *config.txt* file via 
+
+```bash
+sudo nano /boot/firmware/config.txt
+```
+
+Of course, you can use your own favorite editor instead of nano.
+
+The two UARTs are symbolically called UART0 and UART1. To enable one or both, add the following, probably best added at the end of the *config.txt* file.
+
+```code
+[pi5]
+dtoverlay=uart0-pi5
+dtoverlay=uart1-pi5
+```
+
+The first *dtoverlay* line enables UART0 and, as you probably guessed, the second *dtoverlay* line enables UART1. Put either or both of those lines after the ***[pi5]*** line. Understand that by putting these lines in the *config.txt* file, you are assigning a pair of pins for use as UART communication for each UART, and those pins cannot then be used for other functionality.
+
+See [This link](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#gpio) for a description and description of the GPIO pins on the Raspberry Pi board.
+
+UART0 assigns ***GPIO14*** (a.k.a *TXD*) as a transmit pin and ***GPIO15*** (a.k.a. RXD) as a receive pin.
+UART1 assigns ***GPIO0*** (a.k.a. *ID_SD*) as a transmit pin and ***GPIO1*** (a.k.a. *ID_SC*) as a receive pin.
+
+After you make the above change and reboot, you will see UART0 show up in the device tree as ***ttyAMA0*** and UART1 show up as ***ttyAMA1***. Remember, only those devices that you enabled will show up in the device tree. E.g.
+
+```bash
+ls -l /dev/ttyAMA*
+crw-rw-rw- 1 root dialout 204, 64 Mar 16 17:30 /dev/ttyAMA0
+crw-rw-rw- 1 root dialout 204, 65 Mar 16 17:57 /dev/ttyAMA1
+crw-rw-rw- 1 root dialout 204, 74 Mar 16 17:30 /dev/ttyAMA10
+```
+
+You can ignore ***ttyAMA10*** for purposes of this code.
+
+## Assigning yourself to the dialout group.
+
+By default, the devices are only able to be accessed by the root user or some user which is a member of the ***dialout*** group. In order to eliminate the complication of allowing this code to use one of the UART devices, you should add yourself to the ***dialout*** group. First, find out your user name via:
+
+```bash
+whoami
+```
+
+The single line response will show your user name. Then you need to add that user (yourself) to the dialout group. Do it in two commands:
+
+```bash
+sudo su
+usermod -a -G dialout *myusername*
+```
+
+Replace *myusername* in the second line with the actual username result from the ***whoami*** command.
+
+Adding yourself to a group won't actually take effect until you log in again. So, log out of your current Linux session and log back in again. If you execute the following command:
+
+```bash
+groups
+```
+
+You will see the list of group names that you are a member of. Obviously, ***dialout*** should be in that list. Now  you can access the UART(s) you enabled without needing extra permission.
+
+
+## Test that the UART is working.
+
+Before connecting to the **Roboclaw** device itself, verify that the Raspberry Pi UART is actually functional. Put a jumper between the transmit and receive pins for the UART port  you enabled. E.g., if you enabled UART0, put a jumper between ***GPIO14*** and ***GPIO15***. If you enabled UART1, put a jumper beween ***GPIO0*** and ***GPIO1***.
+
+Now, simply use ***minicom***, which should be installed by default for the ***ubuntu*** distribution, to test the UART. Issue the command:
+
+```bash
+minicom -D /dev/ttyAMA0
+```
+
+if you enabled UART0. For UART1, the device is ***/dev/ttyAMA1***.
+
+When ***minicom*** comes up, you should be able to type some characters on the keyboard and see them echoed in the screen. To exit ***minicom***, type **control-A** followed by **Q** and then hit return when it asks if you want to ***Leave without reset?***. You can explore ***minicom** if you want to play with attributes of the UART port, such as setting a different baud rate, but I'm not covering that here.
+
