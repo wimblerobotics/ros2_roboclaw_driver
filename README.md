@@ -254,9 +254,11 @@ by this package.
 Do not expect the encoder
 values to be the same between node instantiations for this driver package.
 
-# Enabling UARTS on the Raspberry Pi
+# Enabling UARTs on the Raspberry Pi
 
 ## For the Raspberry Pi 5
+
+Of course, I assume and will not accept any resposibility for damage to any device as a result of you following these instructions. The instructions worked for my devices. Your mileage may vary and you assume all risks.
 
 There are at least two UARTs you can use with the Raspberry Pi. To use them, you need to add lines to the *config.txt* file via 
 
@@ -280,6 +282,8 @@ See [This link](https://www.raspberrypi.com/documentation/computers/raspberry-pi
 
 UART0 assigns ***GPIO14*** (a.k.a *TXD*) as a transmit pin and ***GPIO15*** (a.k.a. RXD) as a receive pin.
 UART1 assigns ***GPIO0*** (a.k.a. *ID_SD*) as a transmit pin and ***GPIO1*** (a.k.a. *ID_SC*) as a receive pin.
+
+When you wire the Raspberry Pi to the RoboClaw, you wire the Raspberry Pi transmit pin (i.e., ***GPIO14*** or ***GPIO0***, whichevery you enabled) to S1 on the RoboClaw and the Raspberry Pi receive pin (i.e., ***GPIO15*** or ***GPIO1***) to S2 on the RoboClaw. Make sure that there is a ground connection between the Raspberry Pi and the RoboClaw as well. You probably need to have motor power applied to the RoboClaw as well for the devices to successfully talk to each other.
 
 After you make the above change and reboot, you will see UART0 show up in the device tree as ***ttyAMA0*** and UART1 show up as ***ttyAMA1***. Remember, only those devices that you enabled will show up in the device tree. E.g.
 
