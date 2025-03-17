@@ -308,7 +308,7 @@ The single line response will show your user name. Then you need to add that use
 
 ```bash
 sudo su
-usermod -a -G dialout *myusername*
+usermod -a -G dialout myusername
 ```
 
 Replace *myusername* in the second line with the actual username result from the ***whoami*** command.
@@ -334,5 +334,25 @@ minicom -D /dev/ttyAMA0
 
 if you enabled UART0. For UART1, the device is ***/dev/ttyAMA1***.
 
-When ***minicom*** comes up, you should be able to type some characters on the keyboard and see them echoed in the screen. To exit ***minicom***, type **control-A** followed by **Q** and then hit return when it asks if you want to ***Leave without reset?***. You can explore ***minicom** if you want to play with attributes of the UART port, such as setting a different baud rate, but I'm not covering that here.
+When ***minicom*** comes up, you should be able to type some characters on the keyboard and see them echoed in the screen. To exit ***minicom***, type **control-A** followed by **Q** and then hit return when it asks if you want to ***Leave without reset?***. You can explore **minicom** if you want to play with attributes of the UART port, such as setting a different baud rate, but I'm not covering that here.
 
+## Change the motor_driver.yaml file
+
+As described elsewhere in this document, you need to change the ***motor_driver.yaml*** file to point to the UART you enabled.
+For example, here is a slice of a possible ***motor_driver.yaml*** file to use a Raspberry Pi UART:
+
+```code
+motor_driver_node:
+  ros__parameters:
+    # Incremental acceleration to use in quadrature pulses per second.
+    accel_quad_pulses_per_second: 1000
+
+    # The device name to be opened.
+    device_name: "/dev/ttyAMA1"
+
+```
+
+Notice that this ***motor_driver.yaml*** fragment tells the code to use UART1, which is in the device tree as ***/dev/ttyAMA1***
+
+**NOTE** **NOTE** **NOTE**
+At present, the code is hard-coded to use 38400 baud communication between the Raspberry Pi and the **RoboClaw**. Make sure you have configured the **RoboClaw** to use this baud rate and also to use Packet Serial communication mode.
