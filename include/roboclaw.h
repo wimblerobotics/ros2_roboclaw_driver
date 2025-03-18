@@ -1,8 +1,11 @@
 #pragma once
 
+#include <rcutils/logging_macros.h>
+
 #include <chrono>
 #include <rclcpp/logger.hpp>
 #include <string>
+#include <sys/types.h>
 
 #include "ros2_roboclaw_driver/srv/reset_encoders.hpp"
 
@@ -20,14 +23,19 @@
    thread.
 */
 
+#define SetDWORDval(arg)                                                       \
+  (uint8_t)(arg >> 24), (uint8_t)(arg >> 16), (uint8_t)(arg >> 8), (uint8_t)arg
+
+#define kDebugIO true
+
 class RoboClaw {
- public:
+public:
   // Bit positions used to build alarms.
   enum {
-    kM1_OVER_CURRENT = 0x01,        // Motor 1 current sense is too high.
-    kM2_OVER_CURRENT = 0x02,        // Motor 2 current sense is too high.
-    kM1_OVER_CURRENT_ALARM = 0x04,  // Motor 1 controller over current alarm.
-    kM2_OVER_CURRENT_ALARM = 0x08,  // Motor 2 controller over current alarm.
+    kM1_OVER_CURRENT = 0x01,       // Motor 1 current sense is too high.
+    kM2_OVER_CURRENT = 0x02,       // Motor 2 current sense is too high.
+    kM1_OVER_CURRENT_ALARM = 0x04, // Motor 1 controller over current alarm.
+    kM2_OVER_CURRENT_ALARM = 0x08, // Motor 2 controller over current alarm.
   };
 
   // Referencing which encoder in the RoboClaw
@@ -78,6 +86,13 @@ class RoboClaw {
 
   ~RoboClaw();
 
+  void appendToLog(const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    debug_log_.appendToLog(format, args);
+    va_end(args);
+  }
+
   void doMixedSpeedDist(int32_t m1_quad_pulses_per_second,
                         int32_t m1_max_distance,
                         int32_t m2_quad_pulses_per_second,
@@ -126,8 +141,8 @@ class RoboClaw {
   int32_t getVelocity(WHICH_VELOCITY whichVelocity);
 
   // Get RoboClaw software versions.
-	std::string getVersion();
-  
+  std::string getVersion();
+
   // Stop motion.
   void stop();
 
@@ -135,8 +150,14 @@ class RoboClaw {
   static RoboClaw *singleton();
 
   static void readSensorGroup();
-  
- private:
+
+protected:
+  // Write a stream of bytes to the device.
+  void writeN(bool sendCRC, uint8_t cnt, ...);
+
+  void writeN2(bool sendCRC, uint8_t cnt, ...);
+
+private:
   EncodeResult cache_getEncoderCommandResult(WHICH_ENC command);
 
   // Get RoboClaw error status bits.
@@ -265,7 +286,7 @@ class RoboClaw {
     GETM1MAXCURRENT = 135
   } ROBOCLAW_COMMAND;
 
-  int device_port_;  // Unix file descriptor for RoboClaw connection.
+  int device_port_; // Unix file descriptor for RoboClaw connection.
   float m1p_;
   float m1i_;
   float m1d_;
@@ -274,13 +295,13 @@ class RoboClaw {
   float m2i_;
   float m2d_;
   int m2qpps_;
-  int maxCommandRetries_;    // Maximum number of times to retry a RoboClaw
-                             // command.
-  float maxM1Current_;       // Maximum allowed M1 current.
-  float maxM2Current_;       // Maximum allowed M2 current.
-  int motorAlarms_;          // Motors alarms. Bit-wise OR of contributors.
-  std::string device_name_;  // Device name of RoboClaw device.
-  int portAddress_;          // Port number of RoboClaw device under control
+  int maxCommandRetries_;   // Maximum number of times to retry a RoboClaw
+                            // command.
+  float maxM1Current_;      // Maximum allowed M1 current.
+  float maxM2Current_;      // Maximum allowed M2 current.
+  int motorAlarms_;         // Motors alarms. Bit-wise OR of contributors.
+  std::string device_name_; // Device name of RoboClaw device.
+  int portAddress_;         // Port number of RoboClaw device under control
 
   // Get velocity (speed) result from the RoboClaw controller.
   int32_t getVelocityResult(uint8_t command);
@@ -301,9 +322,9 @@ class RoboClaw {
   void restartPort();
 
   // Reset the encoders.
-  bool resetEncoders(
-      ros2_roboclaw_driver::srv::ResetEncoders::Request &request,
-      ros2_roboclaw_driver::srv::ResetEncoders::Response &response);
+  bool
+  resetEncoders(ros2_roboclaw_driver::srv::ResetEncoders::Request &request,
+                ros2_roboclaw_driver::srv::ResetEncoders::Response &response);
 
   // Set the PID for motor M1.
   void setM1PID(float p, float i, float d, uint32_t qpps);
@@ -317,10 +338,111 @@ class RoboClaw {
   // Write one byte to the device.
   void writeByte(uint8_t byte);
 
-  // Write a stream of bytes to the device.
-  void writeN(bool sendCRC, uint8_t cnt, ...);
+  // Write one byte to the device.
+  void writeByte2(uint8_t byte);
 
   void SetEncoder(ROBOCLAW_COMMAND command, long value);
 
   static RoboClaw *g_singleton;
+
+  char command_log_[256];
+  char response_log_[256];
+
+  enum kMotor { kM1 = 0, kM2 = 1, kNone = 2 };
+
+  class Cmd {
+  public:
+    void execute() {
+      for (int retry = 0; retry < 3 /*### maxCommandRetries_*/; retry++) {
+        try {
+          send();
+          return;
+        } catch (TRoboClawException *e) {
+          RCUTILS_LOG_ERROR(
+              "[RoboClaw::Cmd::execute] Exception: %s, retry number: %d",
+              e->what(), retry);
+        } catch (...) {
+          RCUTILS_LOG_ERROR("[RoboClaw::Cmd::execute] Uncaught exception !!!");
+        }
+      }
+
+      RCUTILS_LOG_ERROR("[RoboClaw::Cmd::execute] RETRY COUNT EXCEEDED");
+      throw new TRoboClawException(
+          "[RoboClaw::Cmd::execute] RETRY COUNT EXCEEDED");
+    }
+
+    virtual void send() = 0; // Declare send as a pure virtual function
+
+  protected:
+    Cmd(RoboClaw &roboclaw, const char *name, const kMotor motor)
+        : motor_(motor), roboclaw_(roboclaw) {
+      strncpy(name_, name, sizeof(name_));
+      name_[sizeof(name_) - 1] = '\0'; // Ensure null-termination
+    }
+
+    kMotor motor_;
+    RoboClaw &roboclaw_;
+    char name_[32];
+
+  private:
+    Cmd() = delete; // Disallow default constructor
+  };
+
+  class DebugLog {
+  public:
+    DebugLog() : next_log_index_(0) {}
+    ~DebugLog() {}
+
+    void appendToLog(const char *format, va_list args) {
+      int written = vsnprintf(&log_[next_log_index_],
+                              sizeof(log_) - next_log_index_, format, args);
+      if (written > 0) {
+        next_log_index_ += written;
+      }
+    }
+
+    void showLog() {
+      RCUTILS_LOG_INFO("%s", log_);
+      next_log_index_ = 0;
+    }
+
+    // private:
+    char log_[256];
+    uint16_t next_log_index_;
+  };
+
+  class CmdSetPid : public Cmd {
+  public:
+    CmdSetPid(RoboClaw &roboclaw, kMotor motor, float p, float i, float d,
+              uint32_t qpps)
+        : Cmd(roboclaw, "SetPid", motor), p_(p), i_(i), d_(d), qpps_(qpps) {}
+
+    void send() override {
+      roboclaw_.appendToLog("SetPid: motor: %d (%s) p: %f, i: %f, d: %f, "
+                            "qpps: %d, bytes: ",
+                            motor_, motorNames_[motor_], p_, i_, d_, qpps_);
+      uint32_t kp = int(p_ * 65536.0);
+      uint32_t ki = int(i_ * 65536.0);
+      uint32_t kd = int(d_ * 65536.0);
+      roboclaw_.writeN2(true, 18, roboclaw_.portAddress_,
+                        motor_ == kM1 ? kSETM1PID : kSETM2PID, SetDWORDval(kd),
+                        SetDWORDval(kp), SetDWORDval(ki), SetDWORDval(qpps_));
+      roboclaw_.debug_log_.showLog();
+    }
+
+    float p_;
+    float i_;
+    float d_;
+    uint32_t qpps_;
+  };
+
+  friend class Cmd; // Make Cmd a friend class of RoboClaw
+
+protected:
+  DebugLog debug_log_;
+
+#ifdef kDebugIO
+  static const char *commandNames_[];
+  static const char *motorNames_[];
+#endif
 };

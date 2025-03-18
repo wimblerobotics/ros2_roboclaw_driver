@@ -1,5 +1,5 @@
 # The configuration file provides values for the two, differential
-# drive motors, 'm1' and 'm2'. See the article: 
+# drive motors, 'm1' and 'm2'. See the article:
 # https://resources.basicmicro.com/auto-tuning-with-motion-studio/
 # for a description of how to derive the p, i, d and qpps values.
 
@@ -9,7 +9,7 @@ motor_driver_node:
     accel_quad_pulses_per_second: 1000
 
     # The device name to be opened.
-    device_name: "/dev/ttyAMA0"
+    device_name: "/dev/ttyACM0"
 
     # The assigned port for the device (as configured on the RoboClaw).
     device_port: 128
@@ -23,7 +23,6 @@ motor_driver_node:
     m2_i: 1.28767
     m2_d: 0.0
     m2_qpps: 2437
-
 
     # The maximum expected current (in amps) for both motors.
     # Used just to signal warnings.
@@ -43,7 +42,7 @@ motor_driver_node:
     publish_odom: true
 
     # Based upon your particular motor gearing and encoders.
-    # These values are used to scale cmd_vel commands 
+    # These values are used to scale cmd_vel commands
     # and encoder values to motor commands and odometry, respectfully.
     quad_pulses_per_meter: 1566
     quad_pulses_per_revolution: 979.62
@@ -52,7 +51,6 @@ motor_driver_node:
     # The wheel separation and radius, in meters.
     wheel_radius: 0.10169
     wheel_separation: 0.345
-    
+
     # Topic name to be used to publish the RoboClaw status messages.
     roboclaw_status_topic: "roboclaw_status"
-

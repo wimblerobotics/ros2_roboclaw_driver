@@ -27,6 +27,16 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 
+include_directories(
+  ${geometry_msgs_INCLUDE_DIRS}
+  ${nav_msgs_INCLUDE_DIRS}
+  ${rclcpp_INCLUDE_DIRS}
+  ${sensor_msgs_INCLUDE_DIRS}
+  ${std_msgs_INCLUDE_DIRS}
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  /usr/include # Ensure standard system headers are included
+)
+
 set(msg_files
   "msg/RoboClawStatus.msg"
 )
@@ -43,14 +53,14 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 
 add_executable(
-  ros2_roboclaw_driver_node 
+  ros2_roboclaw_driver_node
   src/motor_driver_node.cpp
   src/motor_driver.cpp
   src/roboclaw.cpp
 )
 
 ament_target_dependencies(
-  ros2_roboclaw_driver_node 
+  ros2_roboclaw_driver_node
   rclcpp
   geometry_msgs
   nav_msgs
@@ -78,12 +88,13 @@ install(TARGETS
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
+
   # the following line skips the linter which checks for copyrights
   # uncomment the line when a copyright and license is not present in all source files
-  #set(ament_cmake_copyright_FOUND TRUE)
+  # set(ament_cmake_copyright_FOUND TRUE)
   # the following line skips cpplint (only works in a git repo)
   # uncomment the line when this package is not in a git repo
-  #set(ament_cmake_cpplint_FOUND TRUE)
+  # set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
 
