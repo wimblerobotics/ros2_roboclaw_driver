@@ -1,10 +1,13 @@
 #pragma once
 
+#include <cstdint>
 #include <rcutils/logging_macros.h>
 
 #include <chrono>
 #include <rclcpp/logger.hpp>
+#include <sstream>
 #include <string>
+
 #include <sys/types.h>
 
 #include "ros2_roboclaw_driver/srv/reset_encoders.hpp"
@@ -25,8 +28,6 @@
 
 #define SetDWORDval(arg)                                                       \
   (uint8_t)(arg >> 24), (uint8_t)(arg >> 16), (uint8_t)(arg >> 8), (uint8_t)arg
-
-#define kDebugIO true
 
 class RoboClaw {
 public:
@@ -86,10 +87,17 @@ public:
 
   ~RoboClaw();
 
-  void appendToLog(const char *format, ...) {
+  void appendToReadLog(const char *format, ...) {
     va_list args;
     va_start(args, format);
-    debug_log_.appendToLog(format, args);
+    debug_log_.appendToReadLog(format, args);
+    va_end(args);
+  }
+
+  void appendToWriteLog(const char *format, ...) {
+    va_list args;
+    va_start(args, format);
+    debug_log_.appendToWriteLog(format, args);
     va_end(args);
   }
 
@@ -158,6 +166,12 @@ protected:
   void writeN2(bool sendCRC, uint8_t cnt, ...);
 
 private:
+  // True => print debug messages.
+  bool doDebug_;
+
+  // True => print byte values as they are read and written.
+  bool doLowLevelDebug_;
+
   EncodeResult cache_getEncoderCommandResult(WHICH_ENC command);
 
   // Get RoboClaw error status bits.
@@ -318,6 +332,9 @@ private:
   // Read one byte from device with timeout.
   uint8_t readByteWithTimeout();
 
+  // Read one byte from device with timeout.
+  uint8_t readByteWithTimeout2();
+
   // Perform error recovery to re-open a failed device port.
   void restartPort();
 
@@ -390,25 +407,40 @@ private:
 
   class DebugLog {
   public:
-    DebugLog() : next_log_index_(0) {}
+    DebugLog() : next_read_log_index_(0), next_write_log_index_(0) {}
     ~DebugLog() {}
 
-    void appendToLog(const char *format, va_list args) {
-      int written = vsnprintf(&log_[next_log_index_],
-                              sizeof(log_) - next_log_index_, format, args);
+    void appendToReadLog(const char *format, va_list args) {
+      int written =
+          vsnprintf(&read_log_[next_read_log_index_],
+                    sizeof(read_log_) - next_read_log_index_, format, args);
       if (written > 0) {
-        next_log_index_ += written;
+        next_read_log_index_ += written;
+      }
+    }
+
+    void appendToWriteLog(const char *format, va_list args) {
+      int written =
+          vsnprintf(&write_log_[next_write_log_index_],
+                    sizeof(write_log_) - next_write_log_index_, format, args);
+      if (written > 0) {
+        next_write_log_index_ += written;
       }
     }
 
     void showLog() {
-      RCUTILS_LOG_INFO("%s", log_);
-      next_log_index_ = 0;
+      RCUTILS_LOG_INFO("%s, READ: %s", write_log_, read_log_);
+      read_log_[0] = '\0';
+      next_read_log_index_ = 0;
+      write_log_[0] = '\0';
+      next_write_log_index_ = 0;
     }
 
     // private:
-    char log_[256];
-    uint16_t next_log_index_;
+    char read_log_[256];
+    char write_log_[256];
+    uint16_t next_read_log_index_;
+    uint16_t next_write_log_index_;
   };
 
   class CmdSetPid : public Cmd {
@@ -418,9 +450,10 @@ private:
         : Cmd(roboclaw, "SetPid", motor), p_(p), i_(i), d_(d), qpps_(qpps) {}
 
     void send() override {
-      roboclaw_.appendToLog("SetPid: motor: %d (%s) p: %f, i: %f, d: %f, "
-                            "qpps: %d, bytes: ",
-                            motor_, motorNames_[motor_], p_, i_, d_, qpps_);
+      roboclaw_.appendToWriteLog("SetPid: motor: %d (%s) p: %f, i: %f, d: %f, "
+                                 "qpps: %d, WROTE: ",
+                                 motor_, motorNames_[motor_], p_, i_, d_,
+                                 qpps_);
       uint32_t kp = int(p_ * 65536.0);
       uint32_t ki = int(i_ * 65536.0);
       uint32_t kd = int(d_ * 65536.0);
@@ -436,13 +469,96 @@ private:
     uint32_t qpps_;
   };
 
+  class CmdReadFirmwareVersion : public Cmd {
+  public:
+    CmdReadFirmwareVersion(RoboClaw &roboclaw, std::string &version)
+        : Cmd(roboclaw, "ReadFirmwareVersion", kNone), version_(version) {}
+
+    void send() override {
+      roboclaw_.appendToWriteLog("ReadFirmwareVersion: WROTE: ");
+      roboclaw_.writeN2(false, 2, roboclaw_.portAddress_, kGETVERSION);
+
+      try {
+        uint16_t crc = 0;
+        uint8_t i;
+        uint8_t datum;
+        std::stringstream version;
+
+        roboclaw_.updateCrc(crc, roboclaw_.portAddress_);
+        roboclaw_.updateCrc(crc, kGETVERSION);
+        for (i = 0; i < 48; i++) {
+          datum = roboclaw_.readByteWithTimeout2();
+          roboclaw_.updateCrc(crc, datum);
+          if (datum == 0) {
+            uint16_t responseCrc = 0;
+            datum = roboclaw_.readByteWithTimeout2();
+            responseCrc = datum << 8;
+            datum = roboclaw_.readByteWithTimeout2();
+            responseCrc |= datum;
+            if (responseCrc == crc) {
+              version_ = version.str();
+              // roboclaw_.debug_log_.appendToReadLog("RR%d", 0);
+              // roboclaw_.debug_log_.appendToWriteLog("WW%d", 0);
+              roboclaw_.debug_log_.showLog();
+              return;
+            } else {
+              roboclaw_.debug_log_.showLog();
+              RCUTILS_LOG_ERROR("[RoboClaw::CmdReadFirmwareVersion] invalid "
+                                "CRC expected: 0x%02X, "
+                                "got: 0x%02X",
+                                crc, responseCrc);
+            }
+          } else {
+            version << (char)datum;
+          }
+        }
+
+        RCUTILS_LOG_ERROR(
+            "[RoboClaw::CmdReadFirmwareVersion] unexpected long string");
+        throw new TRoboClawException(
+            "[RoboClaw::getVersion] unexpected long string");
+      } catch (...) {
+        RCUTILS_LOG_ERROR(
+            "[RoboClaw::CmdReadFirmwareVersion] Uncaught exception !!!");
+      }
+      RCUTILS_LOG_ERROR(
+          "[RoboClaw::CmdReadFirmwareVersion] RETRY COUNT EXCEEDED");
+    }
+
+    std::string &version_;
+  };
+
+  class CmdSetEncoderValue : public Cmd {
+  public:
+    CmdSetEncoderValue(RoboClaw &roboclaw, kMotor motor, long value)
+        : Cmd(roboclaw, "SetEncoderValue", motor), value_(value) {}
+
+    void send() override {
+      roboclaw_.appendToWriteLog(
+          "SetEncoderValue: motor: %d (%s) value: %ld, WROTE: ", motor_,
+          motorNames_[motor_], value_);
+      // roboclaw_.SetEncoder(motor_ == kM1 ? kSETM1ENCODER : kSETM2ENCODER,
+      //                      value_);
+      try {
+        roboclaw_.writeN2(true, 6, roboclaw_.portAddress_,
+                          motor_ == kM1 ? kSETM1ENCODER : kSETM2ENCODER,
+                          SetDWORDval(value_));
+        roboclaw_.debug_log_.showLog();
+        return;
+      } catch (...) {
+        RCUTILS_LOG_ERROR(
+            "[RoboClaw::CmdSetEncoderValue] Uncaught exception !!!");
+      }
+    }
+
+    long value_;
+  };
+
   friend class Cmd; // Make Cmd a friend class of RoboClaw
 
 protected:
   DebugLog debug_log_;
 
-#ifdef kDebugIO
   static const char *commandNames_[];
   static const char *motorNames_[];
-#endif
 };
