@@ -6,10 +6,9 @@ if(NOT CMAKE_C_STANDARD)
   set(CMAKE_C_STANDARD 99)
 endif()
 
-# Default to C++14
-if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 14)
-endif()
+# Enforce C++17 or higher
+set(CMAKE_CXX_STANDARD 17) # or 14 or 17, etc.
+set(CMAKE_CXX_STANDARD_REQUIRED ON) # Ensure the standard is enforced
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
