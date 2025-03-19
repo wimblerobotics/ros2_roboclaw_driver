@@ -429,7 +429,8 @@ private:
     }
 
     void showLog() {
-      RCUTILS_LOG_INFO("%s, READ: %s", write_log_, read_log_);
+      RCUTILS_LOG_INFO("[RoboClaw::DebugLog] %s, READ: %s", write_log_,
+                       read_log_);
       read_log_[0] = '\0';
       next_read_log_index_ = 0;
       write_log_[0] = '\0';
@@ -497,8 +498,6 @@ private:
             responseCrc |= datum;
             if (responseCrc == crc) {
               version_ = version.str();
-              // roboclaw_.debug_log_.appendToReadLog("RR%d", 0);
-              // roboclaw_.debug_log_.appendToWriteLog("WW%d", 0);
               roboclaw_.debug_log_.showLog();
               return;
             } else {
@@ -552,6 +551,44 @@ private:
     }
 
     long value_;
+  };
+
+  class CmdReadStatus : public Cmd {
+  public:
+    CmdReadStatus(RoboClaw &roboclaw, unsigned short &status)
+        : Cmd(roboclaw, "ReadStatus", kNone), status_(status) {}
+    void send() override {
+      try {
+        uint16_t crc = 0;
+        roboclaw_.updateCrc(crc, roboclaw_.portAddress_);
+        roboclaw_.updateCrc(crc, kGETERROR);
+        roboclaw_.appendToWriteLog("ReadStatus: WROTE: ");
+        roboclaw_.writeN2(false, 2, roboclaw_.portAddress_, kGETERROR);
+        unsigned short result = (unsigned short)roboclaw_.getULongCont(crc);
+        uint16_t responseCrc = 0;
+        uint16_t datum = roboclaw_.readByteWithTimeout2();
+        responseCrc = datum << 8;
+        datum = roboclaw_.readByteWithTimeout2();
+        responseCrc |= datum;
+        if (responseCrc == crc) {
+          roboclaw_.appendToReadLog(", RESULT: %04X", result);
+          roboclaw_.debug_log_.showLog();
+          status_ = result;
+          return;
+        } else {
+          RCUTILS_LOG_ERROR(
+              "[RoboClaw::cache_getErrorStatus] invalid CRC expected: 0x%02X, "
+              "got: "
+              "0x%02X",
+              crc, responseCrc);
+        }
+      } catch (...) {
+        RCUTILS_LOG_ERROR(
+            "[RoboClaw::cache_getErrorStatus] Uncaught exception !!!");
+      }
+    };
+
+    unsigned short &status_;
   };
 
   friend class Cmd; // Make Cmd a friend class of RoboClaw

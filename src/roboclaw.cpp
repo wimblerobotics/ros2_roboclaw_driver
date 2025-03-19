@@ -383,41 +383,10 @@ uint16_t RoboClaw::getErrorStatus() {
 }
 
 uint16_t RoboClaw::cache_getErrorStatus() {
-  for (int retry = 0; retry < maxCommandRetries_; retry++) {
-    try {
-      uint16_t crc = 0;
-      updateCrc(crc, portAddress_);
-      updateCrc(crc, kGETERROR);
-
-      writeN(false, 2, portAddress_, kGETERROR);
-      unsigned short result = (unsigned short)getULongCont(crc);
-      uint16_t responseCrc = 0;
-      uint16_t datum = readByteWithTimeout();
-      responseCrc = datum << 8;
-      datum = readByteWithTimeout();
-      responseCrc |= datum;
-      if (responseCrc == crc) {
-        return result;
-      } else {
-        RCUTILS_LOG_ERROR(
-            "[RoboClaw::cache_getErrorStatus] invalid CRC expected: 0x%02X, "
-            "got: "
-            "0x%02X",
-            crc, responseCrc);
-      }
-    } catch (TRoboClawException *e) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::cache_getErrorStatus] Exception: %s, retry number: %d",
-          e->what(), retry);
-    } catch (...) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::cache_getErrorStatus] Uncaught exception !!!");
-    }
-  }
-
-  RCUTILS_LOG_ERROR("[RoboClaw::cache_getErrorStatus] RETRY COUNT EXCEEDED");
-  throw new TRoboClawException(
-      "[RoboClaw::cache_getErrorStatus] RETRY COUNT EXCEEDED");
+  unsigned short result;
+  CmdReadStatus cmd(*this, result);
+  cmd.execute();
+  return result;
 }
 
 std::string RoboClaw::getErrorString() {
