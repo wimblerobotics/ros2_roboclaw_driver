@@ -1,5 +1,6 @@
 #include "roboclaw.h"
 
+#include <cstdint>
 #include <fcntl.h>
 #include <math.h>
 #include <poll.h>
@@ -17,262 +18,6 @@
 #include "ros2_roboclaw_driver/srv/reset_encoders.h"
 
 const char *RoboClaw::motorNames_[] = {"M1", "M2", "NONE"};
-const char *RoboClaw::commandNames_[] = {"0",
-                                         "1",
-                                         "2",
-                                         "3",
-                                         "4",
-                                         "5",
-                                         "6",
-                                         "7",
-                                         "8",
-                                         "9",
-                                         "10",
-                                         "11",
-                                         "12",
-                                         "13",
-                                         "14",
-                                         "15",
-                                         "16",
-                                         "17",
-                                         "18",
-                                         "19",
-                                         "20",
-                                         "Read Firmware Version",
-                                         "22",
-                                         "23",
-                                         "24",
-                                         "25",
-                                         "26",
-                                         "27",
-                                         "Set Velocity PID M1",
-                                         "Set Velocity PID M2",
-                                         "30",
-                                         "31",
-                                         "32",
-                                         "33",
-                                         "34",
-                                         "35",
-                                         "36",
-                                         "37",
-                                         "38",
-                                         "39",
-                                         "40",
-                                         "41",
-                                         "42",
-                                         "43",
-                                         "44",
-                                         "45",
-                                         "46",
-                                         "47",
-                                         "48",
-                                         "49",
-                                         "50",
-                                         "51",
-                                         "52",
-                                         "53",
-                                         "54",
-                                         "55",
-                                         "56",
-                                         "57",
-                                         "58",
-                                         "59",
-                                         "60",
-                                         "61",
-                                         "62",
-                                         "63",
-                                         "64",
-                                         "65",
-                                         "66",
-                                         "67",
-                                         "68",
-                                         "69",
-                                         "70",
-                                         "71",
-                                         "72",
-                                         "73",
-                                         "74",
-                                         "75",
-                                         "76",
-                                         "77",
-                                         "78",
-                                         "79",
-                                         "80",
-                                         "81",
-                                         "82",
-                                         "83",
-                                         "84",
-                                         "85",
-                                         "86",
-                                         "87",
-                                         "88",
-                                         "89",
-                                         "90",
-                                         "91",
-                                         "92",
-                                         "93",
-                                         "94",
-                                         "95",
-                                         "96",
-                                         "97",
-                                         "98",
-                                         "99",
-                                         "100",
-                                         "101",
-                                         "102",
-                                         "103",
-                                         "104",
-                                         "105",
-                                         "106",
-                                         "107",
-                                         "108",
-                                         "109",
-                                         "110",
-                                         "111",
-                                         "112",
-                                         "113",
-                                         "114",
-                                         "115",
-                                         "116",
-                                         "117",
-                                         "118",
-                                         "119",
-                                         "120",
-                                         "121",
-                                         "122",
-                                         "123",
-                                         "124",
-                                         "125",
-                                         "126",
-                                         "127",
-                                         "128",
-                                         "129",
-                                         "130",
-                                         "131",
-                                         "132",
-                                         "133",
-                                         "134",
-                                         "135",
-                                         "136",
-                                         "137",
-                                         "138",
-                                         "139",
-                                         "140",
-                                         "141",
-                                         "142",
-                                         "143",
-                                         "144",
-                                         "145",
-                                         "146",
-                                         "147",
-                                         "148",
-                                         "149",
-                                         "150",
-                                         "151",
-                                         "152",
-                                         "153",
-                                         "154",
-                                         "155",
-                                         "156",
-                                         "157",
-                                         "158",
-                                         "159",
-                                         "160",
-                                         "161",
-                                         "162",
-                                         "163",
-                                         "164",
-                                         "165",
-                                         "166",
-                                         "167",
-                                         "168",
-                                         "169",
-                                         "170",
-                                         "171",
-                                         "172",
-                                         "173",
-                                         "174",
-                                         "175",
-                                         "176",
-                                         "177",
-                                         "178",
-                                         "179",
-                                         "180",
-                                         "181",
-                                         "182",
-                                         "183",
-                                         "184",
-                                         "185",
-                                         "186",
-                                         "187",
-                                         "188",
-                                         "189",
-                                         "190",
-                                         "191",
-                                         "192",
-                                         "193",
-                                         "194",
-                                         "195",
-                                         "196",
-                                         "197",
-                                         "198",
-                                         "199",
-                                         "200",
-                                         "201",
-                                         "202",
-                                         "203",
-                                         "204",
-                                         "205",
-                                         "206",
-                                         "207",
-                                         "208",
-                                         "209",
-                                         "210",
-                                         "211",
-                                         "212",
-                                         "213",
-                                         "214",
-                                         "215",
-                                         "216",
-                                         "217",
-                                         "218",
-                                         "219",
-                                         "220",
-                                         "221",
-                                         "222",
-                                         "223",
-                                         "224",
-                                         "225",
-                                         "226",
-                                         "227",
-                                         "228",
-                                         "229",
-                                         "230",
-                                         "231",
-                                         "232",
-                                         "233",
-                                         "234",
-                                         "235",
-                                         "236",
-                                         "237",
-                                         "238",
-                                         "239",
-                                         "240",
-                                         "241",
-                                         "242",
-                                         "243",
-                                         "244",
-                                         "245",
-                                         "246",
-                                         "247",
-                                         "248",
-                                         "249",
-                                         "250",
-                                         "251",
-                                         "252",
-                                         "253",
-                                         "254",
-                                         "255"};
 
 RoboClaw::RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
                    float m2MaxCurrent, std::string device_name,
@@ -323,59 +68,6 @@ void RoboClaw::doMixedSpeedAccelDist(uint32_t accel_quad_pulses_per_second,
          SetDWORDval(m2_quad_pulses_per_second), SetDWORDval(m2_max_distance),
          1 /* Cancel any previous command. */
   );
-}
-
-RoboClaw::EncodeResult RoboClaw::getEncoderCommandResult(WHICH_ENC command) {
-  if (command == kGETM1ENC) {
-    return g_sensor_value_group_.m1_encoder_command_result;
-  } else {
-    return g_sensor_value_group_.m2_encoder_command_result;
-  }
-}
-
-RoboClaw::EncodeResult
-RoboClaw::cache_getEncoderCommandResult(WHICH_ENC command) {
-  uint16_t crc = 0;
-  updateCrc(crc, portAddress_);
-  updateCrc(crc, command);
-
-  writeN(false, 2, portAddress_, command);
-  EncodeResult result = {0, 0};
-  uint8_t datum = readByteWithTimeout();
-  result.value |= datum << 24;
-  updateCrc(crc, datum);
-
-  datum = readByteWithTimeout();
-  result.value |= datum << 16;
-  updateCrc(crc, datum);
-
-  datum = readByteWithTimeout();
-  result.value |= datum << 8;
-  updateCrc(crc, datum);
-
-  datum = readByteWithTimeout();
-  result.value |= datum;
-  updateCrc(crc, datum);
-
-  datum = readByteWithTimeout();
-  result.status |= datum;
-  updateCrc(crc, datum);
-
-  uint16_t responseCrc = 0;
-  datum = readByteWithTimeout();
-  responseCrc = datum << 8;
-  datum = readByteWithTimeout();
-  responseCrc |= datum;
-  if (responseCrc == crc) {
-    return result;
-  }
-
-  RCUTILS_LOG_ERROR(
-      "[RoboClaw::cache_getEncoderCommandResult] Expected CRC of: 0x%02X, but "
-      "got: 0x%02X",
-      int(crc), int(responseCrc));
-  throw new TRoboClawException(
-      "[RoboClaw::cache_getEncoderCommandResult] INVALID CRC");
 }
 
 uint16_t RoboClaw::getErrorStatus() {
@@ -477,54 +169,6 @@ float RoboClaw::getLogicBatteryLevel() {
   return g_sensor_value_group_.logic_battery_level;
 }
 
-float RoboClaw::cache_getLogicBatteryLevel() {
-  int retry;
-
-  for (retry = 0; retry < maxCommandRetries_; retry++) {
-    try {
-      float result = ((float)get2ByteCommandResult(kGETLBATT)) / 10.0;
-      return result;
-    } catch (TRoboClawException *e) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::cache_getLogicBatteryLevel] Exception: %s, retry "
-          "number: %d",
-          e->what(), retry);
-    } catch (...) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::cache_getLogicBatteryLevel] Uncaught exception !!!");
-    }
-  }
-
-  RCUTILS_LOG_ERROR(
-      "[RoboClaw::cache_getLogicBatteryLevel] RETRY COUNT EXCEEDED");
-  throw new TRoboClawException(
-      "[RoboClaw::cache_getLogicBatteryLevel] RETRY COUNT EXCEEDED");
-}
-
-int32_t RoboClaw::getM1Encoder() { return g_sensor_value_group_.m1_encoder; }
-
-int32_t RoboClaw::cache_getM1Encoder() {
-  int retry;
-
-  for (retry = 0; retry < maxCommandRetries_; retry++) {
-    try {
-      EncodeResult result = getEncoderCommandResult(kGETM1ENC);
-      return result.value;
-    } catch (TRoboClawException *e) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::cache_getM1Encoder] Exception: %s, retry number: %d",
-          e->what(), retry);
-    } catch (...) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::cache_getM1Encoder] Uncaught exception !!!");
-    }
-  }
-
-  RCUTILS_LOG_ERROR("[RoboClaw::cache_getM1Encoder] RETRY COUNT EXCEEDED");
-  throw new TRoboClawException(
-      "[RoboClaw::cache_getM1Encoder] RETRY COUNT EXCEEDED");
-}
-
 float RoboClaw::getMainBatteryLevel() {
   return g_sensor_value_group_.main_battery_level;
 }
@@ -585,6 +229,40 @@ unsigned short RoboClaw::get2ByteCommandResult(uint8_t command) {
   }
 }
 
+// ### change result type to uint16_t
+unsigned short RoboClaw::get2ByteCommandResult2(uint8_t command) {
+  uint16_t crc = 0;
+  updateCrc(crc, portAddress_);
+  updateCrc(crc, command);
+
+  writeN2(false, 2, portAddress_, command);
+  unsigned short result = 0;
+  uint8_t datum = readByteWithTimeout2();
+  result |= datum << 8;
+  updateCrc(crc, datum);
+
+  datum = readByteWithTimeout2();
+  result |= datum;
+  updateCrc(crc, datum);
+
+  uint16_t responseCrc = 0;
+  datum = readByteWithTimeout2();
+  responseCrc = datum << 8;
+  datum = readByteWithTimeout2();
+  responseCrc |= datum;
+  if (responseCrc == crc) {
+    return result;
+  } else {
+    RCUTILS_LOG_ERROR(
+        "[RoboClaw::get2ByteCommandResult2] invalid CRC expected: "
+        "0x%02X, got: 0x%02X",
+        crc, responseCrc);
+    throw new TRoboClawException(
+        "[RoboClaw::get2ByteCommandResult] INVALID CRC");
+    return 0;
+  }
+}
+
 RoboClaw::TMotorCurrents RoboClaw::getMotorCurrents() {
   return g_sensor_value_group_.motor_currents;
 }
@@ -636,55 +314,18 @@ RoboClaw::TMotorCurrents RoboClaw::cache_getMotorCurrents() {
       "[RoboClaw::cache_getMotorCurrents] RETRY COUNT EXCEEDED");
 }
 
-RoboClaw::TPIDQ RoboClaw::getPIDQ(WHICH_MOTOR whichMotor) {
-  if (whichMotor == kGETM1PID) {
-    return g_sensor_value_group_.m1_pidq;
-  } else {
-    return g_sensor_value_group_.m2_pidq;
-  }
+RoboClaw::TPIDQ RoboClaw::getPIDQM1() {
+  TPIDQ result;
+  CmdReadMotorVelocityPIDQ cmd(*this, kM1, result);
+  cmd.execute();
+  return result;
 }
 
-RoboClaw::TPIDQ RoboClaw::cache_getPIDQ(WHICH_MOTOR whichMotor) {
-  int retry;
-
-  for (retry = 0; retry < maxCommandRetries_; retry++) {
-    TPIDQ result;
-    try {
-      uint16_t crc = 0;
-      updateCrc(crc, portAddress_);
-      updateCrc(crc, whichMotor);
-
-      writeN(false, 2, portAddress_, whichMotor);
-      result.p = (int32_t)getULongCont(crc);
-      result.i = (int32_t)getULongCont(crc);
-      result.d = (int32_t)getULongCont(crc);
-      result.qpps = (int32_t)getULongCont(crc);
-
-      uint16_t responseCrc = 0;
-      uint16_t datum = readByteWithTimeout();
-      responseCrc = datum << 8;
-      datum = readByteWithTimeout();
-      responseCrc |= datum;
-      if (responseCrc == crc) {
-        return result;
-      } else {
-        RCUTILS_LOG_ERROR(
-            "[RoboClaw::cache_getPIDQ] invalid CRC expected: 0x%2X, got: "
-            "0x%2X",
-            crc, responseCrc);
-      }
-    } catch (TRoboClawException *e) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::cache_getPIDQ] Exception: %s, retry number: %d",
-          e->what(), retry);
-    } catch (...) {
-      RCUTILS_LOG_ERROR("[RoboClaw::cache_getPIDQ] Uncaught exception !!!");
-    }
-  }
-
-  RCUTILS_LOG_ERROR("[RoboClaw::cache_getPIDQ] RETRY COUNT EXCEEDED");
-  throw new TRoboClawException(
-      "[RoboClaw::cache_getPIDQ] RETRY COUNT EXCEEDED");
+RoboClaw::TPIDQ RoboClaw::getPIDQM2() {
+  TPIDQ result;
+  CmdReadMotorVelocityPIDQ cmd(*this, kM2, result);
+  cmd.execute();
+  return result;
 }
 
 float RoboClaw::getTemperature() { return g_sensor_value_group_.temperature; }
@@ -771,18 +412,18 @@ unsigned long RoboClaw::getUlongCommandResult(uint8_t command) {
   return 0;
 }
 
-uint32_t RoboClaw::getULongCont(uint16_t &crc) {
+uint32_t RoboClaw::getULongCont2(uint16_t &crc) {
   uint32_t result = 0;
-  uint8_t datum = readByteWithTimeout();
+  uint8_t datum = readByteWithTimeout2();
   result |= datum << 24;
   updateCrc(crc, datum);
-  datum = readByteWithTimeout();
+  datum = readByteWithTimeout2();
   result |= datum << 16;
   updateCrc(crc, datum);
-  datum = readByteWithTimeout();
+  datum = readByteWithTimeout2();
   result |= datum << 8;
   updateCrc(crc, datum);
-  datum = readByteWithTimeout();
+  datum = readByteWithTimeout2();
   result |= datum;
   updateCrc(crc, datum);
   return result;
@@ -792,29 +433,22 @@ int32_t RoboClaw::getVelocity(WHICH_VELOCITY whichVelocity) {
   if (whichVelocity == kGETM1SPEED) {
     return g_sensor_value_group_.m1_velocity;
   } else {
-    return g_sensor_value_group_.m2_speed;
+    return g_sensor_value_group_.m2_velocity;
   }
 }
 
-int32_t RoboClaw::cache_getVelocity(WHICH_VELOCITY whichVelocity) {
-  int retry;
+int32_t RoboClaw::cache_getVelocityM1() {
+  int32_t result;
+  CmdReadEncoderSpeed cmd(*this, kM1, result);
+  cmd.execute();
+  return result;
+}
 
-  for (retry = 0; retry < maxCommandRetries_; retry++) {
-    try {
-      uint32_t result = getVelocityResult(whichVelocity);
-      return result;
-    } catch (TRoboClawException *e) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::cache_getVelocity] Exception: %s, retry number: %d",
-          e->what(), retry);
-    } catch (...) {
-      RCUTILS_LOG_ERROR("[RoboClaw::cache_getVelocity] Uncaught exception !!!");
-    }
-  }
-
-  RCUTILS_LOG_ERROR("RoboClaw::cache_getVelocity] RETRY COUNT EXCEEDED");
-  throw new TRoboClawException(
-      "[RoboClaw::cache_getVelocity] RETRY COUNT EXCEEDED");
+int32_t RoboClaw::cache_getVelocityM2() {
+  int32_t result;
+  CmdReadEncoderSpeed cmd(*this, kM2, result);
+  cmd.execute();
+  return result;
 }
 
 int32_t RoboClaw::getVelocityResult(uint8_t command) {
@@ -822,33 +456,33 @@ int32_t RoboClaw::getVelocityResult(uint8_t command) {
   updateCrc(crc, portAddress_);
   updateCrc(crc, command);
 
-  writeN(false, 2, portAddress_, command);
+  writeN2(false, 2, portAddress_, command);
   int32_t result = 0;
-  uint8_t datum = readByteWithTimeout();
+  uint8_t datum = readByteWithTimeout2();
   result |= datum << 24;
   updateCrc(crc, datum);
 
-  datum = readByteWithTimeout();
+  datum = readByteWithTimeout2();
   result |= datum << 16;
   updateCrc(crc, datum);
 
-  datum = readByteWithTimeout();
+  datum = readByteWithTimeout2();
   result |= datum << 8;
   updateCrc(crc, datum);
 
-  datum = readByteWithTimeout();
+  datum = readByteWithTimeout2();
   result |= datum;
   updateCrc(crc, datum);
 
-  uint8_t direction = readByteWithTimeout();
+  uint8_t direction = readByteWithTimeout2();
   updateCrc(crc, direction);
   if (direction != 0)
     result = -result;
 
   uint16_t responseCrc = 0;
-  datum = readByteWithTimeout();
+  datum = readByteWithTimeout2();
   responseCrc = datum << 8;
-  datum = readByteWithTimeout();
+  datum = readByteWithTimeout2();
   responseCrc |= datum;
   if (responseCrc == crc) {
     return result;
@@ -862,28 +496,20 @@ int32_t RoboClaw::getVelocityResult(uint8_t command) {
   return 0;
 }
 
-int32_t RoboClaw::getM2Encoder() { return g_sensor_value_group_.m2_encoder; }
+int32_t RoboClaw::getM1Encoder() {
+  return g_sensor_value_group_.m1_encoder_command_result.value;
+}
 
-int32_t RoboClaw::cache_getM2Encoder() {
-  int retry;
+int8_t RoboClaw::getM1EncoderStatus() {
+  return g_sensor_value_group_.m1_encoder_command_result.status;
+}
 
-  for (retry = 0; retry < maxCommandRetries_; retry++) {
-    try {
-      EncodeResult result = getEncoderCommandResult(kGETM2ENC);
-      return result.value;
-    } catch (TRoboClawException *e) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::cache_getM2Encoder] Exception: %s, retry number: %d",
-          e->what(), retry);
-    } catch (...) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::cache_getM2Encoder] Uncaught exception !!!");
-    }
-  }
+int32_t RoboClaw::getM2Encoder() {
+  return g_sensor_value_group_.m2_encoder_command_result.value;
+}
 
-  RCUTILS_LOG_ERROR("[RoboClaw::cache_getM2Encoder] RETRY COUNT EXCEEDED");
-  throw new TRoboClawException(
-      "[RoboClaw::cache_getM2Encoder] RETRY COUNT EXCEEDED");
+int8_t RoboClaw::getM2EncoderStatus() {
+  return g_sensor_value_group_.m2_encoder_command_result.status;
 }
 
 std::string RoboClaw::getVersion() {
@@ -1104,24 +730,37 @@ uint8_t RoboClaw::readByteWithTimeout2() {
 
 void RoboClaw::readSensorGroup() {
   if (singleton() != nullptr) {
+    TPIDQ m1_read_velocity_pidq_result;
+    TPIDQ m2_read_velocity_pidq_result;
+    CmdReadMotorVelocityPIDQ cmd_m1_read_motor_velocity_pidq(
+        *this, kM1, m1_read_velocity_pidq_result);
+    cmd_m1_read_motor_velocity_pidq.execute();
+    CmdReadMotorVelocityPIDQ cmd_m2_read_motor_velocity_pidq(
+        *this, kM2, m2_read_velocity_pidq_result);
+    cmd_m2_read_motor_velocity_pidq.execute();
+    float logic_battery_level = 0.0;
+    CmdReadLogicBatteryVoltage cmd_logic_battery(*this, logic_battery_level);
+    cmd_logic_battery.execute();
+    float main_battery_level = 0.0;
+    CmdReadMainBatteryVoltage cmd_main_battery(*this, main_battery_level);
+    cmd_main_battery.execute();
+    EncodeResult m1_encoder_command_result;
+    EncodeResult m2_encoder_command_result;
+    CmdReadEncoder m1_read_encoder_cmd(*this, kM1, m1_encoder_command_result);
+    m1_read_encoder_cmd.execute();
+    CmdReadEncoder m2_read_encoder_cmd(*this, kM2, m2_encoder_command_result);
+    m2_read_encoder_cmd.execute();
+
+    int32_t m1_speed = singleton()->cache_getVelocityM1();
+    int32_t m2_speed = singleton()->cache_getVelocityM2();
     g_sensor_value_group_.error_status = singleton()->cache_getErrorStatus();
     g_sensor_value_group_.error_string = singleton()->cache_getErrorString();
-    g_sensor_value_group_.logic_battery_level =
-        singleton()->cache_getLogicBatteryLevel();
-    g_sensor_value_group_.m1_encoder = singleton()->cache_getM1Encoder();
-    g_sensor_value_group_.m1_encoder_command_result =
-        singleton()->cache_getEncoderCommandResult(kGETM1ENC);
-    g_sensor_value_group_.m1_pidq = singleton()->cache_getPIDQ(kGETM1PID);
-    g_sensor_value_group_.m1_velocity =
-        singleton()->cache_getVelocity(RoboClaw::kGETM1SPEED);
-    g_sensor_value_group_.m2_encoder = singleton()->cache_getM2Encoder();
-    g_sensor_value_group_.m2_encoder_command_result =
-        singleton()->cache_getEncoderCommandResult(kGETM2ENC);
-    g_sensor_value_group_.m1_pidq = singleton()->cache_getPIDQ(kGETM2PID);
-    g_sensor_value_group_.m2_speed =
-        singleton()->cache_getVelocity(RoboClaw::kGETM2SPEED);
-    g_sensor_value_group_.main_battery_level =
-        singleton()->cache_getMainBatteryLevel();
+    g_sensor_value_group_.logic_battery_level = logic_battery_level;
+    g_sensor_value_group_.m1_encoder_command_result = m1_encoder_command_result;
+    g_sensor_value_group_.m1_velocity = m1_speed;
+    g_sensor_value_group_.m2_encoder_command_result = m2_encoder_command_result;
+    g_sensor_value_group_.m2_velocity = m2_speed;
+    g_sensor_value_group_.main_battery_level = main_battery_level;
 
     // Call getMotorCurrents before getMotorAlarms;
     g_sensor_value_group_.motor_currents =
@@ -1280,20 +919,6 @@ void RoboClaw::writeN(bool sendCRC, uint8_t cnt, ...) {
 
   for (uint8_t i = 0; i < cnt; i++) {
     uint8_t byte = va_arg(marker, int);
-    if (doLowLevelDebug_) {
-      if (i <= 1) {
-        snprintf(msg, sizeof(msg),
-                 "RoboClaw::writeN2] sendCRC: %d, cnt: %d, byte[%d]: %d",
-                 sendCRC, cnt, i, byte);
-        RCUTILS_LOG_INFO("%s", msg);
-        if (i == 1) {
-          snprintf(msg, sizeof(msg), "[RoboClaw::writeN2] command: %s",
-                   commandNames_[byte]);
-          RCUTILS_LOG_INFO("%s", msg);
-        }
-      }
-    }
-
     updateCrc(crc, byte);
     writeByte(byte);
   }
@@ -1357,5 +982,4 @@ void RoboClaw::writeN2(bool sendCRC, uint8_t cnt, ...) {
 
 RoboClaw *RoboClaw::singleton() { return g_singleton; }
 
-RoboClaw::SensorValueGroup RoboClaw::g_sensor_value_group_;
 RoboClaw *RoboClaw::g_singleton = nullptr;

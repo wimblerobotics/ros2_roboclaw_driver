@@ -31,6 +31,8 @@
 
 class RoboClaw {
 public:
+  enum kMotor { kM1 = 0, kM2 = 1, kNone = 2 };
+
   // Bit positions used to build alarms.
   enum {
     kM1_OVER_CURRENT = 0x01,       // Motor 1 current sense is too high.
@@ -112,7 +114,7 @@ public:
                              int32_t m2_quad_pulses_per_second,
                              uint32_t m2_max_distance);
 
-  EncodeResult getEncoderCommandResult(WHICH_ENC command);
+  // EncodeResult getEncoderCommandResult(WHICH_ENC command);
 
   // Get RoboClaw error status bits.
   uint16_t getErrorStatus();
@@ -127,8 +129,12 @@ public:
   // Get the encoder value for motor 1.
   int32_t getM1Encoder();
 
+  int8_t getM1EncoderStatus();
+
   // Get the encoder value for motor 2.
   int32_t getM2Encoder();
+
+  int8_t getM2EncoderStatus();
 
   // Convenience structure to  hold a pair of current values.
   typedef struct {
@@ -141,7 +147,8 @@ public:
 
   TMotorCurrents getMotorCurrents();
 
-  TPIDQ getPIDQ(WHICH_MOTOR whichMotor);
+  TPIDQ getPIDQM1();
+  TPIDQ getPIDQM2();
 
   float getTemperature();
 
@@ -157,7 +164,7 @@ public:
   // Get singleton instance of class.
   static RoboClaw *singleton();
 
-  static void readSensorGroup();
+  void readSensorGroup();
 
 protected:
   // Write a stream of bytes to the device.
@@ -172,23 +179,13 @@ private:
   // True => print byte values as they are read and written.
   bool doLowLevelDebug_;
 
-  EncodeResult cache_getEncoderCommandResult(WHICH_ENC command);
-
   // Get RoboClaw error status bits.
   uint16_t cache_getErrorStatus();
 
   // Get RoboClaw error status as a string.
   std::string cache_getErrorString();
 
-  float cache_getLogicBatteryLevel();
-
-  // Get the encoder value for motor 1.
-  int32_t cache_getM1Encoder();
-
   int32_t cache_getM1Speed();
-
-  // Get the encoder value for motor 2.
-  int32_t cache_getM2Encoder();
 
   int32_t cache_getM2Speed();
 
@@ -196,12 +193,11 @@ private:
 
   TMotorCurrents cache_getMotorCurrents();
 
-  TPIDQ cache_getPIDQ(WHICH_MOTOR whichMotor);
-
   float cache_getTemperature();
 
   // Get velocity (speed) of a motor.
-  int32_t cache_getVelocity(WHICH_VELOCITY whichVelocity);
+  int32_t cache_getVelocityM1();
+  int32_t cache_getVelocityM2();
 
   static void sensorReadThread();
 
@@ -209,14 +205,12 @@ private:
     uint16_t error_status;
     std::string error_string;
     float logic_battery_level;
-    int32_t m1_encoder;
     EncodeResult m1_encoder_command_result;
     TPIDQ m1_pidq;
     int32_t m1_velocity;
-    int32_t m2_encoder;
     EncodeResult m2_encoder_command_result;
     TPIDQ m2_pidq;
-    int32_t m2_speed;
+    int32_t m2_velocity;
     float main_battery_level;
     int motor_alarms;
     TMotorCurrents motor_currents;
@@ -224,7 +218,7 @@ private:
     std::chrono::system_clock::time_point last_sensor_read_time_;
   } SensorValueGroup;
 
-  static SensorValueGroup g_sensor_value_group_;
+  SensorValueGroup g_sensor_value_group_;
 
   typedef struct {
     unsigned long p1;
@@ -322,9 +316,11 @@ private:
 
   unsigned long getUlongCommandResult(uint8_t command);
 
-  uint32_t getULongCont(uint16_t &crc);
+  uint32_t getULongCont2(uint16_t &crc);
 
   unsigned short get2ByteCommandResult(uint8_t command);
+
+  unsigned short get2ByteCommandResult2(uint8_t command);
 
   // Open the RoboClaw USB port.
   void openPort();
@@ -364,8 +360,6 @@ private:
 
   char command_log_[256];
   char response_log_[256];
-
-  enum kMotor { kM1 = 0, kM2 = 1, kNone = 2 };
 
   class Cmd {
   public:
@@ -425,6 +419,9 @@ private:
                     sizeof(write_log_) - next_write_log_index_, format, args);
       if (written > 0) {
         next_write_log_index_ += written;
+      }
+      if ((next_write_log_index_ > 0) && (write_log_[0] == '8')) {
+        RCUTILS_LOG_INFO("Whoops!");
       }
     }
 
@@ -498,6 +495,7 @@ private:
             responseCrc |= datum;
             if (responseCrc == crc) {
               version_ = version.str();
+              roboclaw_.appendToReadLog(", RESULT: '%s'", version_.c_str());
               roboclaw_.debug_log_.showLog();
               return;
             } else {
@@ -564,7 +562,7 @@ private:
         roboclaw_.updateCrc(crc, kGETERROR);
         roboclaw_.appendToWriteLog("ReadStatus: WROTE: ");
         roboclaw_.writeN2(false, 2, roboclaw_.portAddress_, kGETERROR);
-        unsigned short result = (unsigned short)roboclaw_.getULongCont(crc);
+        unsigned short result = (unsigned short)roboclaw_.getULongCont2(crc);
         uint16_t responseCrc = 0;
         uint16_t datum = roboclaw_.readByteWithTimeout2();
         responseCrc = datum << 8;
@@ -577,18 +575,194 @@ private:
           return;
         } else {
           RCUTILS_LOG_ERROR(
-              "[RoboClaw::cache_getErrorStatus] invalid CRC expected: 0x%02X, "
+              "[RoboClaw::CmdReadStatus] invalid CRC expected: 0x%02X, "
               "got: "
               "0x%02X",
               crc, responseCrc);
         }
       } catch (...) {
-        RCUTILS_LOG_ERROR(
-            "[RoboClaw::cache_getErrorStatus] Uncaught exception !!!");
+        RCUTILS_LOG_ERROR("[RoboClaw::CmdReadStatus] Uncaught exception !!!");
       }
     };
 
     unsigned short &status_;
+  };
+
+  class CmdReadLogicBatteryVoltage : public Cmd {
+  public:
+    CmdReadLogicBatteryVoltage(RoboClaw &roboclaw, float &voltage)
+        : Cmd(roboclaw, "ReadLogicBatteryVoltage", kNone), voltage_(voltage) {}
+    void send() override {
+      try {
+        roboclaw_.appendToWriteLog("ReadLogicBatteryVoltage: WROTE: ");
+        float result =
+            ((float)roboclaw_.get2ByteCommandResult2(kGETLBATT)) / 10.0;
+        voltage_ = result;
+        roboclaw_.appendToReadLog(", RESULT: %f", result);
+        roboclaw_.debug_log_.showLog();
+        return;
+      } catch (...) {
+        RCUTILS_LOG_ERROR(
+            "[RoboClaw::CmdReadLogicBatteryVoltage] Uncaught exception !!!");
+      }
+    }
+
+    float &voltage_;
+  };
+
+  class CmdReadMainBatteryVoltage : public Cmd {
+  public:
+    CmdReadMainBatteryVoltage(RoboClaw &roboclaw, float &voltage)
+        : Cmd(roboclaw, "ReadLMainBatteryVoltage", kNone), voltage_(voltage) {}
+    void send() override {
+      try {
+        roboclaw_.appendToWriteLog("ReadLMainBatteryVoltage: WROTE: ");
+        float result =
+            ((float)roboclaw_.get2ByteCommandResult2(kGETMBATT)) / 10.0;
+        voltage_ = result;
+        roboclaw_.appendToReadLog(", RESULT: %f", result);
+        roboclaw_.debug_log_.showLog();
+        return;
+      } catch (...) {
+        RCUTILS_LOG_ERROR(
+            "[RoboClaw::CmdReadMainBatteryVoltage] Uncaught exception !!!");
+      }
+    }
+
+    float &voltage_;
+  };
+
+  class CmdReadEncoder : public Cmd {
+  public:
+    CmdReadEncoder(RoboClaw &roboclaw, kMotor motor, EncodeResult &encoder)
+        : Cmd(roboclaw, "ReadEncoder", motor), encoder_(encoder) {}
+    void send() override {
+      try {
+        roboclaw_.appendToWriteLog("ReadEncoder: encoder: %d (%s), WROTE: ",
+                                   motor_, motor_ == kM1 ? "M1" : "M2");
+
+        uint16_t crc = 0;
+        roboclaw_.updateCrc(crc, roboclaw_.portAddress_);
+        roboclaw_.updateCrc(crc, motor_ == kM1 ? kGETM1ENC : kGETM2ENC);
+
+        roboclaw_.writeN2(false, 2, roboclaw_.portAddress_,
+                          motor_ == kM1 ? kGETM1ENC : kGETM2ENC);
+
+        uint8_t datum = roboclaw_.readByteWithTimeout2();
+        encoder_.value |= datum << 24;
+        roboclaw_.updateCrc(crc, datum);
+
+        datum = roboclaw_.readByteWithTimeout2();
+        encoder_.value |= datum << 16;
+        roboclaw_.updateCrc(crc, datum);
+
+        datum = roboclaw_.readByteWithTimeout2();
+        encoder_.value |= datum << 8;
+        roboclaw_.updateCrc(crc, datum);
+
+        datum = roboclaw_.readByteWithTimeout2();
+        encoder_.value |= datum;
+        roboclaw_.updateCrc(crc, datum);
+
+        datum = roboclaw_.readByteWithTimeout2();
+        encoder_.status |= datum;
+        roboclaw_.updateCrc(crc, datum);
+
+        uint16_t responseCrc = 0;
+        datum = roboclaw_.readByteWithTimeout2();
+        responseCrc = datum << 8;
+        datum = roboclaw_.readByteWithTimeout2();
+        responseCrc |= datum;
+        if (responseCrc != crc) {
+          RCUTILS_LOG_ERROR("[RoboClaw::CmdReadEncoder] Expected "
+                            "CRC of: 0x%02X, but "
+                            "got: 0x%02X",
+                            int(crc), int(responseCrc));
+          throw new TRoboClawException(
+              "[RoboClaw::CmdReadEncoder] INVALID CRC");
+        }
+
+        roboclaw_.appendToReadLog(", RESULT value: %d, status: %d",
+                                  encoder_.value, encoder_.status);
+        roboclaw_.debug_log_.showLog();
+        return;
+      } catch (...) {
+        RCUTILS_LOG_ERROR("[RoboClaw::CmdReadEncoder] Uncaught exception !!!");
+      }
+    }
+
+    EncodeResult &encoder_;
+  };
+
+  class CmdReadMotorVelocityPIDQ : public Cmd {
+  public:
+    CmdReadMotorVelocityPIDQ(RoboClaw &roboclaw, kMotor motor, TPIDQ &pidq)
+        : Cmd(roboclaw, "ReadMotorVelocityPIDQ", motor), pidq_(pidq) {}
+    void send() override {
+      try {
+        roboclaw_.appendToWriteLog(
+            "ReadMotorVelocityPIDQ: motor: %d (%s), WROTE: ", motor_,
+            motor_ == kM1 ? "M1" : "M2");
+        TPIDQ result;
+        uint16_t crc = 0;
+        roboclaw_.updateCrc(crc, roboclaw_.portAddress_);
+        roboclaw_.updateCrc(crc, motor_ == kM1 ? kGETM1PID : kGETM2PID);
+
+        roboclaw_.writeN2(false, 2, roboclaw_.portAddress_,
+                          motor_ == kM1 ? kGETM1PID : kGETM2PID);
+        result.p = (int32_t)roboclaw_.getULongCont2(crc) / 65536.0;
+        result.i = (int32_t)roboclaw_.getULongCont2(crc) / 65536.0;
+        result.d = (int32_t)roboclaw_.getULongCont2(crc) / 65536.0;
+        result.qpps = (int32_t)roboclaw_.getULongCont2(crc);
+
+        uint16_t responseCrc = 0;
+        uint16_t datum = roboclaw_.readByteWithTimeout2();
+        responseCrc = datum << 8;
+        datum = roboclaw_.readByteWithTimeout2();
+        responseCrc |= datum;
+        roboclaw_.appendToReadLog(
+            ", RESULT: p: %3.4f, i: %3.4f, d: %3.4f, qpps: %d", result.p,
+            result.i, result.d, result.qpps);
+        roboclaw_.debug_log_.showLog();
+        if (responseCrc == crc) {
+          pidq_ = result;
+          return;
+        } else {
+          RCUTILS_LOG_ERROR("[RoboClaw::CmdReadMotorVelocityPIDQ] invalid CRC "
+                            "expected: 0x%2X, got: "
+                            "0x%2X",
+                            crc, responseCrc);
+        }
+      } catch (...) {
+        RCUTILS_LOG_ERROR(
+            "[RoboClaw::CmdReadMotorVelocityPIDQ] Uncaught exception !!!");
+      }
+    }
+
+    TPIDQ &pidq_;
+  };
+
+  class CmdReadEncoderSpeed : public Cmd {
+  public:
+    CmdReadEncoderSpeed(RoboClaw &roboclaw, kMotor motor, int32_t &speed)
+        : Cmd(roboclaw, "ReadEncoderSpeed", motor), speed_(speed) {}
+    void send() override {
+      try {
+        roboclaw_.appendToWriteLog("ReadEncoderSpeed: motor: %d (%s), WROTE: ",
+                                   motor_, motor_ == kM1 ? "M1" : "M2");
+        int32_t result = roboclaw_.getVelocityResult(
+            motor_ == kM1 ? kGETM1SPEED : kGETM2SPEED);
+        speed_ = result;
+        roboclaw_.appendToReadLog(", RESULT: %d", result);
+        roboclaw_.debug_log_.showLog();
+        return;
+      } catch (...) {
+        RCUTILS_LOG_ERROR("[RoboClaw::CmdReadEncoderSpeed] Uncaught exception "
+                          "!!!");
+      }
+    }
+
+    int32_t &speed_;
   };
 
   friend class Cmd; // Make Cmd a friend class of RoboClaw
@@ -596,6 +770,5 @@ private:
 protected:
   DebugLog debug_log_;
 
-  static const char *commandNames_[];
   static const char *motorNames_[];
 };

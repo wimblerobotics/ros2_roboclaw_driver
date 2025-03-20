@@ -6,6 +6,7 @@ from launch import LaunchDescription
 import launch_ros.actions
 from launch_ros.actions import Node
 
+
 def generate_launch_description():
     # The following 'my_package_name' should be changed to the
     # package name in your robot workspace that will contain
@@ -37,7 +38,8 @@ def generate_launch_description():
     # file for more information.
 
     with open(configFilePath, 'r') as file:
-        configParams = yaml.safe_load(file)['motor_driver_node']['ros__parameters']   
+        configParams = yaml.safe_load(
+            file)['motor_driver_node']['ros__parameters']
 
     ld = LaunchDescription()
 
@@ -47,7 +49,7 @@ def generate_launch_description():
         executable='ros2_roboclaw_driver_node',
         package='ros2_roboclaw_driver',
         parameters=[configParams],
-        #prefix=['xterm -e gdb -ex run --args'],
+        # prefix=['xterm -e gdb -ex run --args'],
         respawn=True,
         output='screen')
     ld.add_action(motor_driver_node)
