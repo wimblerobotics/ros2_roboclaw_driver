@@ -8,6 +8,7 @@
 #include <sstream>
 #include <string>
 
+#include <mutex> // Include mutex header
 #include <sys/types.h>
 
 #include "ros2_roboclaw_driver/srv/reset_encoders.hpp"
@@ -179,25 +180,15 @@ private:
   // True => print byte values as they are read and written.
   bool doLowLevelDebug_;
 
-  // Get RoboClaw error status bits.
-  uint16_t cache_getErrorStatus();
-
   // Get RoboClaw error status as a string.
-  std::string cache_getErrorString();
+  std::string getErrorString(uint16_t errorStatus);
 
   int32_t cache_getM1Speed();
-
   int32_t cache_getM2Speed();
 
   float cache_getMainBatteryLevel();
 
-  TMotorCurrents cache_getMotorCurrents();
-
   float cache_getTemperature();
-
-  // Get velocity (speed) of a motor.
-  int32_t cache_getVelocityM1();
-  int32_t cache_getVelocityM2();
 
   static void sensorReadThread();
 
@@ -316,6 +307,8 @@ private:
 
   unsigned long getUlongCommandResult(uint8_t command);
 
+  unsigned long getUlongCommandResult2(uint8_t command);
+
   uint32_t getULongCont2(uint16_t &crc);
 
   unsigned short get2ByteCommandResult(uint8_t command);
@@ -366,6 +359,8 @@ private:
     void execute() {
       for (int retry = 0; retry < 3 /*### maxCommandRetries_*/; retry++) {
         try {
+          std::lock_guard<std::mutex> lock(
+              RoboClaw::buffered_command_mutex_); // Lock the mutex
           send();
           return;
         } catch (TRoboClawException *e) {
@@ -553,7 +548,7 @@ private:
 
   class CmdReadStatus : public Cmd {
   public:
-    CmdReadStatus(RoboClaw &roboclaw, unsigned short &status)
+    CmdReadStatus(RoboClaw &roboclaw, uint16_t &status)
         : Cmd(roboclaw, "ReadStatus", kNone), status_(status) {}
     void send() override {
       try {
@@ -562,16 +557,15 @@ private:
         roboclaw_.updateCrc(crc, kGETERROR);
         roboclaw_.appendToWriteLog("ReadStatus: WROTE: ");
         roboclaw_.writeN2(false, 2, roboclaw_.portAddress_, kGETERROR);
-        unsigned short result = (unsigned short)roboclaw_.getULongCont2(crc);
+        status_ = (unsigned short)roboclaw_.getULongCont2(crc);
         uint16_t responseCrc = 0;
         uint16_t datum = roboclaw_.readByteWithTimeout2();
         responseCrc = datum << 8;
         datum = roboclaw_.readByteWithTimeout2();
         responseCrc |= datum;
         if (responseCrc == crc) {
-          roboclaw_.appendToReadLog(", RESULT: %04X", result);
+          roboclaw_.appendToReadLog(", RESULT: %04X", status_);
           roboclaw_.debug_log_.showLog();
-          status_ = result;
           return;
         } else {
           RCUTILS_LOG_ERROR(
@@ -585,7 +579,7 @@ private:
       }
     };
 
-    unsigned short &status_;
+    uint16_t &status_;
   };
 
   class CmdReadLogicBatteryVoltage : public Cmd {
@@ -750,10 +744,9 @@ private:
       try {
         roboclaw_.appendToWriteLog("ReadEncoderSpeed: motor: %d (%s), WROTE: ",
                                    motor_, motor_ == kM1 ? "M1" : "M2");
-        int32_t result = roboclaw_.getVelocityResult(
-            motor_ == kM1 ? kGETM1SPEED : kGETM2SPEED);
-        speed_ = result;
-        roboclaw_.appendToReadLog(", RESULT: %d", result);
+        speed_ = roboclaw_.getVelocityResult(motor_ == kM1 ? kGETM1SPEED
+                                                           : kGETM2SPEED);
+        roboclaw_.appendToReadLog(", RESULT: %d", speed_);
         roboclaw_.debug_log_.showLog();
         return;
       } catch (...) {
@@ -765,10 +758,152 @@ private:
     int32_t &speed_;
   };
 
+  class CmdReadMotorCurrents : public Cmd {
+  public:
+    CmdReadMotorCurrents(RoboClaw &roboclaw, TMotorCurrents &motorCurrents)
+        : Cmd(roboclaw, "ReadMotorCurrents", kNone),
+          motorCurrents_(motorCurrents) {}
+    void send() override {
+      try {
+        roboclaw_.appendToWriteLog("ReadMotorCurrents: WROTE: ");
+
+        unsigned long currentPair =
+            roboclaw_.getUlongCommandResult2(kGETCURRENTS);
+        motorCurrents_.m1Current = ((int16_t)(currentPair >> 16)) * 0.010;
+        motorCurrents_.m2Current = ((int16_t)(currentPair & 0xFFFF)) * 0.010;
+        roboclaw_.appendToReadLog(
+            ", RESULT m1 current: %3.4f, m2 current: %3.4f",
+            motorCurrents_.m1Current, motorCurrents_.m2Current);
+        roboclaw_.debug_log_.showLog();
+
+        if (motorCurrents_.m1Current > roboclaw_.maxM1Current_) {
+          roboclaw_.motorAlarms_ |= kM1_OVER_CURRENT_ALARM;
+          RCUTILS_LOG_ERROR(
+              "[RoboClaw::CmdReadMotorCurrents] Motor 1 over current. Max "
+              "allowed: %6.3f, found: %6.3f",
+              roboclaw_.maxM1Current_, motorCurrents_.m1Current);
+          roboclaw_.stop();
+        } else {
+          roboclaw_.motorAlarms_ &= ~kM1_OVER_CURRENT_ALARM;
+        }
+
+        if (motorCurrents_.m2Current > roboclaw_.maxM2Current_) {
+          roboclaw_.motorAlarms_ |= kM2_OVER_CURRENT_ALARM;
+          RCUTILS_LOG_ERROR(
+              "[RoboClaw::CmdReadMotorCurrents] Motor 2 over current. Max "
+              "allowed: %6.3f, found: %6.3f",
+              roboclaw_.maxM2Current_, motorCurrents_.m2Current);
+          roboclaw_.stop();
+        } else {
+          roboclaw_.motorAlarms_ &= ~kM2_OVER_CURRENT_ALARM;
+        }
+      } catch (...) {
+        RCUTILS_LOG_ERROR(
+            "[RoboClaw::CmdReadMotorCurrents] Uncaught exception !!!");
+      }
+    }
+
+    TMotorCurrents &motorCurrents_;
+  };
+
+  class CmdReadTemperature : public Cmd {
+  public:
+    CmdReadTemperature(RoboClaw &roboclaw, float &temperature)
+        : Cmd(roboclaw, "ReadTemperature", kNone), temperature_(temperature) {}
+    void send() override {
+      try {
+        roboclaw_.appendToWriteLog("ReadTemperature: WROTE: ");
+        uint16_t crc = 0;
+        roboclaw_.updateCrc(crc, roboclaw_.portAddress_);
+        roboclaw_.updateCrc(crc, kGETTEMPERATURE);
+        roboclaw_.writeN2(false, 2, roboclaw_.portAddress_, kGETTEMPERATURE);
+        uint16_t result = 0;
+        uint8_t datum = roboclaw_.readByteWithTimeout2();
+        roboclaw_.updateCrc(crc, datum);
+        result = datum << 8;
+        datum = roboclaw_.readByteWithTimeout2();
+        roboclaw_.updateCrc(crc, datum);
+        result |= datum;
+
+        uint16_t responseCrc = 0;
+        datum = roboclaw_.readByteWithTimeout2();
+        responseCrc = datum << 8;
+        datum = roboclaw_.readByteWithTimeout2();
+        responseCrc |= datum;
+        if (responseCrc != crc) {
+          RCUTILS_LOG_ERROR(
+              "[RoboClaw::cache_getTemperature] invalid CRC expected: 0x%2X, "
+              "got: 0x%2X",
+              crc, responseCrc);
+          result = 0.0;
+        }
+
+        temperature_ = result / 10.0;
+      } catch (...) {
+        RCUTILS_LOG_ERROR(
+            "[RoboClaw::cache_getTemperature] Uncaught exception !!!");
+      }
+
+      roboclaw_.appendToReadLog(", RESULT: %f", temperature_);
+      roboclaw_.debug_log_.showLog();
+    }
+
+    float &temperature_;
+  };
+
+  class CmdDoBufferedM2M2DriveSpeedAccelDistance : public Cmd {
+  public:
+    CmdDoBufferedM2M2DriveSpeedAccelDistance(
+        RoboClaw &roboclaw, uint32_t accel_quad_pulses_per_second,
+        int32_t m1_speed_quad_pulses_per_second,
+        uint32_t m1_max_distance_quad_pulses,
+        int32_t m2_speed_quad_pulses_per_second,
+        uint32_t m2_max_distance_quad_pulses)
+        : Cmd(roboclaw, "DoBufferedDriveSpeedAccelDistance", kNone),
+          accel_quad_pulses_per_second_(accel_quad_pulses_per_second),
+          m1_speed_quad_pulses_per_second_(m1_speed_quad_pulses_per_second),
+          m1_max_distance_quad_pulses_(m1_max_distance_quad_pulses),
+          m2_speed_quad_pulses_per_second_(m2_speed_quad_pulses_per_second),
+          m2_max_distance_quad_pulses_(m2_max_distance_quad_pulses) {}
+    void send() override {
+      try {
+        roboclaw_.appendToWriteLog(
+            "BufferedM1M2WithSignedSpeedAccelDist: accel: %d, m1Speed: %d, "
+            "m1Distance: %d, m2Speed: %d, m2Distance: %d, WROTE: ",
+            accel_quad_pulses_per_second_, m1_speed_quad_pulses_per_second_,
+            m1_max_distance_quad_pulses_, m2_speed_quad_pulses_per_second_,
+            m2_max_distance_quad_pulses_);
+        roboclaw_.writeN2(true, 23, roboclaw_.portAddress_,
+                          kMIXEDSPEEDACCELDIST,
+                          SetDWORDval(accel_quad_pulses_per_second_),
+                          SetDWORDval(m1_speed_quad_pulses_per_second_),
+                          SetDWORDval(m1_max_distance_quad_pulses_),
+                          SetDWORDval(m2_speed_quad_pulses_per_second_),
+                          SetDWORDval(m2_max_distance_quad_pulses_),
+                          1 /* Cancel any previous command. */
+        );
+        roboclaw_.debug_log_.showLog();
+      } catch (...) {
+        roboclaw_.debug_log_.showLog();
+        RCUTILS_LOG_ERROR(
+            "[RoboClaw::CmdDoBufferedM2M2DriveSpeedAccelDistance] Uncaught "
+            "exception !!!");
+      }
+    }
+
+    uint32_t accel_quad_pulses_per_second_;
+    int32_t m1_speed_quad_pulses_per_second_;
+    uint32_t m1_max_distance_quad_pulses_;
+    int32_t m2_speed_quad_pulses_per_second_;
+    uint32_t m2_max_distance_quad_pulses_;
+  };
+
   friend class Cmd; // Make Cmd a friend class of RoboClaw
 
 protected:
   DebugLog debug_log_;
 
   static const char *motorNames_[];
+  static std::mutex
+      buffered_command_mutex_; // Global mutex for buffered commands
 };

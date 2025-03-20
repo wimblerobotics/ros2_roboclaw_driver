@@ -19,6 +19,9 @@
 
 const char *RoboClaw::motorNames_[] = {"M1", "M2", "NONE"};
 
+// Initialize the static mutex
+std::mutex RoboClaw::buffered_command_mutex_;
+
 RoboClaw::RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
                    float m2MaxCurrent, std::string device_name,
                    uint8_t device_port)
@@ -62,31 +65,21 @@ void RoboClaw::doMixedSpeedAccelDist(uint32_t accel_quad_pulses_per_second,
                                      uint32_t m1_max_distance,
                                      int32_t m2_quad_pulses_per_second,
                                      uint32_t m2_max_distance) {
-  writeN(true, 23, portAddress_, kMIXEDSPEEDACCELDIST,
-         SetDWORDval(accel_quad_pulses_per_second),
-         SetDWORDval(m1_quad_pulses_per_second), SetDWORDval(m1_max_distance),
-         SetDWORDval(m2_quad_pulses_per_second), SetDWORDval(m2_max_distance),
-         1 /* Cancel any previous command. */
-  );
+  CmdDoBufferedM2M2DriveSpeedAccelDistance command(
+      *this, accel_quad_pulses_per_second, m1_quad_pulses_per_second,
+      m1_max_distance, m2_quad_pulses_per_second, m2_max_distance);
+  command.execute();
 }
 
 uint16_t RoboClaw::getErrorStatus() {
   return g_sensor_value_group_.error_status;
 }
 
-uint16_t RoboClaw::cache_getErrorStatus() {
-  unsigned short result;
-  CmdReadStatus cmd(*this, result);
-  cmd.execute();
-  return result;
-}
-
 std::string RoboClaw::getErrorString() {
   return g_sensor_value_group_.error_string;
 }
 
-std::string RoboClaw::cache_getErrorString() {
-  uint16_t errorStatus = getErrorStatus();
+std::string RoboClaw::getErrorString(uint16_t errorStatus) {
   if (errorStatus == 0)
     return "normal";
   else {
@@ -267,66 +260,9 @@ RoboClaw::TMotorCurrents RoboClaw::getMotorCurrents() {
   return g_sensor_value_group_.motor_currents;
 }
 
-RoboClaw::TMotorCurrents RoboClaw::cache_getMotorCurrents() {
-  int retry;
+RoboClaw::TPIDQ RoboClaw::getPIDQM1() { return g_sensor_value_group_.m1_pidq; }
 
-  for (retry = 0; retry < maxCommandRetries_; retry++) {
-    try {
-      TMotorCurrents result;
-      unsigned long currentPair = getUlongCommandResult(kGETCURRENTS);
-      result.m1Current = ((int16_t)(currentPair >> 16)) * 0.010;
-      result.m2Current = ((int16_t)(currentPair & 0xFFFF)) * 0.010;
-      if (result.m1Current > maxM1Current_) {
-        motorAlarms_ |= kM1_OVER_CURRENT_ALARM;
-        RCUTILS_LOG_ERROR(
-            "[RoboClaw::cache_getMotorCurrents] Motor 1 over current. Max "
-            "allowed: %6.3f, found: %6.3f",
-            maxM1Current_, result.m1Current);
-        stop();
-      } else {
-        motorAlarms_ &= ~kM1_OVER_CURRENT_ALARM;
-      }
-
-      if (result.m2Current > maxM2Current_) {
-        motorAlarms_ |= kM2_OVER_CURRENT_ALARM;
-        RCUTILS_LOG_ERROR(
-            "[RoboClaw::cache_getMotorCurrents] Motor 2 over current. Max "
-            "allowed: %6.3f, found: %6.3f",
-            maxM2Current_, result.m2Current);
-        stop();
-      } else {
-        motorAlarms_ &= ~kM2_OVER_CURRENT_ALARM;
-      }
-
-      return result;
-    } catch (TRoboClawException *e) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::cache_getMotorCurrents] Exception: %s, retry number: %d",
-          e->what(), retry);
-    } catch (...) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::cache_getMotorCurrents] Uncaught exception !!!");
-    }
-  }
-
-  RCUTILS_LOG_ERROR("RoboClaw::cache_getMotorCurrents] RETRY COUNT EXCEEDED");
-  throw new TRoboClawException(
-      "[RoboClaw::cache_getMotorCurrents] RETRY COUNT EXCEEDED");
-}
-
-RoboClaw::TPIDQ RoboClaw::getPIDQM1() {
-  TPIDQ result;
-  CmdReadMotorVelocityPIDQ cmd(*this, kM1, result);
-  cmd.execute();
-  return result;
-}
-
-RoboClaw::TPIDQ RoboClaw::getPIDQM2() {
-  TPIDQ result;
-  CmdReadMotorVelocityPIDQ cmd(*this, kM2, result);
-  cmd.execute();
-  return result;
-}
+RoboClaw::TPIDQ RoboClaw::getPIDQM2() { return g_sensor_value_group_.m2_pidq; }
 
 float RoboClaw::getTemperature() { return g_sensor_value_group_.temperature; }
 
@@ -412,6 +348,44 @@ unsigned long RoboClaw::getUlongCommandResult(uint8_t command) {
   return 0;
 }
 
+unsigned long RoboClaw::getUlongCommandResult2(uint8_t command) {
+  uint16_t crc = 0;
+  updateCrc(crc, portAddress_);
+  updateCrc(crc, command);
+
+  writeN2(false, 2, portAddress_, command);
+  unsigned long result = 0;
+  uint8_t datum = readByteWithTimeout2();
+  result |= datum << 24;
+  updateCrc(crc, datum);
+  datum = readByteWithTimeout2();
+  result |= datum << 16;
+  updateCrc(crc, datum);
+  datum = readByteWithTimeout2();
+  result |= datum << 8;
+  updateCrc(crc, datum);
+  datum = readByteWithTimeout2();
+  result |= datum;
+  updateCrc(crc, datum);
+
+  uint16_t responseCrc = 0;
+  datum = readByteWithTimeout2();
+  responseCrc = datum << 8;
+  datum = readByteWithTimeout2();
+  responseCrc |= datum;
+  if (responseCrc == crc) {
+    return result;
+  }
+
+  RCUTILS_LOG_ERROR(
+      "[RoboClaw::getUlongCommandResult2] Expected CRC of: 0x%02X, but "
+      "got: 0x%02X",
+      int(crc), int(responseCrc));
+  throw new TRoboClawException(
+      "[RoboClaw::getUlongCommandResult2] INVALID CRC");
+  return 0;
+}
+
 uint32_t RoboClaw::getULongCont2(uint16_t &crc) {
   uint32_t result = 0;
   uint8_t datum = readByteWithTimeout2();
@@ -435,20 +409,6 @@ int32_t RoboClaw::getVelocity(WHICH_VELOCITY whichVelocity) {
   } else {
     return g_sensor_value_group_.m2_velocity;
   }
-}
-
-int32_t RoboClaw::cache_getVelocityM1() {
-  int32_t result;
-  CmdReadEncoderSpeed cmd(*this, kM1, result);
-  cmd.execute();
-  return result;
-}
-
-int32_t RoboClaw::cache_getVelocityM2() {
-  int32_t result;
-  CmdReadEncoderSpeed cmd(*this, kM2, result);
-  cmd.execute();
-  return result;
 }
 
 int32_t RoboClaw::getVelocityResult(uint8_t command) {
@@ -735,15 +695,19 @@ void RoboClaw::readSensorGroup() {
     CmdReadMotorVelocityPIDQ cmd_m1_read_motor_velocity_pidq(
         *this, kM1, m1_read_velocity_pidq_result);
     cmd_m1_read_motor_velocity_pidq.execute();
+
     CmdReadMotorVelocityPIDQ cmd_m2_read_motor_velocity_pidq(
         *this, kM2, m2_read_velocity_pidq_result);
     cmd_m2_read_motor_velocity_pidq.execute();
+
     float logic_battery_level = 0.0;
     CmdReadLogicBatteryVoltage cmd_logic_battery(*this, logic_battery_level);
     cmd_logic_battery.execute();
+
     float main_battery_level = 0.0;
     CmdReadMainBatteryVoltage cmd_main_battery(*this, main_battery_level);
     cmd_main_battery.execute();
+
     EncodeResult m1_encoder_command_result;
     EncodeResult m2_encoder_command_result;
     CmdReadEncoder m1_read_encoder_cmd(*this, kM1, m1_encoder_command_result);
@@ -751,23 +715,41 @@ void RoboClaw::readSensorGroup() {
     CmdReadEncoder m2_read_encoder_cmd(*this, kM2, m2_encoder_command_result);
     m2_read_encoder_cmd.execute();
 
-    int32_t m1_speed = singleton()->cache_getVelocityM1();
-    int32_t m2_speed = singleton()->cache_getVelocityM2();
-    g_sensor_value_group_.error_status = singleton()->cache_getErrorStatus();
-    g_sensor_value_group_.error_string = singleton()->cache_getErrorString();
+    TMotorCurrents motor_currents;
+    CmdReadMotorCurrents cmd_read_motor_currents(*this, motor_currents);
+    cmd_read_motor_currents.execute();
+
+    int32_t m1_encoder_speed = 0;
+    int32_t m2_encoder_speed = 0;
+    CmdReadEncoderSpeed cmd_m1_read_encoder_speed(*this, kM1, m1_encoder_speed);
+    cmd_m1_read_encoder_speed.execute();
+    CmdReadEncoderSpeed cmd_m2_read_encoder_speed(*this, kM2, m2_encoder_speed);
+    cmd_m2_read_encoder_speed.execute();
+
+    float temperature = 0.0;
+    CmdReadTemperature cmd_read_temperature(*this, temperature);
+    cmd_read_temperature.execute();
+
+    unsigned short status = 0;
+    CmdReadStatus cmd_read_status(*this, status);
+    cmd_read_status.execute();
+
+    g_sensor_value_group_.error_status = status;
+    g_sensor_value_group_.error_string = singleton()->getErrorString(status);
     g_sensor_value_group_.logic_battery_level = logic_battery_level;
     g_sensor_value_group_.m1_encoder_command_result = m1_encoder_command_result;
-    g_sensor_value_group_.m1_velocity = m1_speed;
+    g_sensor_value_group_.m1_pidq = m1_read_velocity_pidq_result;
+    g_sensor_value_group_.m1_velocity = m1_encoder_speed;
     g_sensor_value_group_.m2_encoder_command_result = m2_encoder_command_result;
-    g_sensor_value_group_.m2_velocity = m2_speed;
+    g_sensor_value_group_.m2_pidq = m2_read_velocity_pidq_result;
+    g_sensor_value_group_.m2_velocity = m2_encoder_speed;
     g_sensor_value_group_.main_battery_level = main_battery_level;
 
     // Call getMotorCurrents before getMotorAlarms;
-    g_sensor_value_group_.motor_currents =
-        singleton()->cache_getMotorCurrents();
+    g_sensor_value_group_.motor_currents = motor_currents;
     g_sensor_value_group_.motor_alarms = singleton()->getMotorAlarms();
 
-    g_sensor_value_group_.temperature = singleton()->cache_getTemperature();
+    g_sensor_value_group_.temperature = temperature;
     g_sensor_value_group_.last_sensor_read_time_ =
         std::chrono::system_clock::now();
   }
