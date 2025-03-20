@@ -1,5 +1,6 @@
 
 #include "motor_driver.h"
+#include "roboclaw.h"
 
 #include <math.h>
 #include <rcutils/logging_macros.h>
@@ -16,10 +17,8 @@
 #include "roboclaw.h"
 
 MotorDriver::MotorDriver()
-    : Node("motor_driver_node"),
-      device_name_("foo_bar"),
-      wheel_radius_(0.10169),
-      wheel_separation_(0.345) {
+    : Node("motor_driver_node"), device_name_("foo_bar"),
+      wheel_radius_(0.10169), wheel_separation_(0.345) {
   this->declare_parameter<int>("accel_quad_pulses_per_second", 600);
   this->declare_parameter<std::string>("device_name", "roboclaw");
   this->declare_parameter<int>("device_port", 123);
@@ -54,7 +53,7 @@ void MotorDriver::cmdVelCallback(
         std::min(std::max((float)msg->angular.z, -max_angular_velocity_),
                  max_angular_velocity_);
     if ((msg->linear.x == 0) && (msg->angular.z == 0)) {
-      RoboClaw::singleton()->doMixedSpeedDist(0, 0, 0, 0);
+      RoboClaw::singleton()->stop();
     } else if ((fabs(x_velocity) > 0.01) || (fabs(yaw_velocity) > 0.01)) {
       const double m1_desired_velocity =
           x_velocity - (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
@@ -151,8 +150,8 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
 
   if (publish_joint_states_) {
     joint_state_publisher_ =
-        this->create_publisher<sensor_msgs::msg::JointState>("puck_joint_states",
-                                                             qos);
+        this->create_publisher<sensor_msgs::msg::JointState>(
+            "puck_joint_states", qos);
   }
 
   if (publish_odom_) {
@@ -190,11 +189,11 @@ void MotorDriver::publisherThread() {
         float encoder_left = RoboClaw::singleton()->getM1Encoder() * 1.0;
         float encoder_right = RoboClaw::singleton()->getM2Encoder() * 1.0;
         double radians_left =
-            ((encoder_left * 1.0)/ g_singleton->quad_pulses_per_revolution_) * 2.0 *
-            M_PI;
+            ((encoder_left * 1.0) / g_singleton->quad_pulses_per_revolution_) *
+            2.0 * M_PI;
         double radians_right =
-            ((encoder_right * 1.0) / g_singleton->quad_pulses_per_revolution_) * 2.0 *
-            M_PI;
+            ((encoder_right * 1.0) / g_singleton->quad_pulses_per_revolution_) *
+            2.0 * M_PI;
         joint_state_msg.name.push_back("front_left_wheel");
         joint_state_msg.name.push_back("front_right_wheel");
         joint_state_msg.position.push_back(radians_left);

@@ -49,17 +49,6 @@ RoboClaw::RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
 
 RoboClaw::~RoboClaw() {}
 
-void RoboClaw::doMixedSpeedDist(int32_t m1_quad_pulses_per_second,
-                                int32_t m1_max_distance,
-                                int32_t m2_quad_pulses_per_second,
-                                int32_t m2_max_distance) {
-  writeN(true, 19, portAddress_, kMIXEDSPEEDDIST,
-         SetDWORDval(m1_quad_pulses_per_second), SetDWORDval(m1_max_distance),
-         SetDWORDval(m2_quad_pulses_per_second), SetDWORDval(m2_max_distance),
-         1 /* Cancel any previous command. */
-  );
-}
-
 void RoboClaw::doMixedSpeedAccelDist(uint32_t accel_quad_pulses_per_second,
                                      int32_t m1_quad_pulses_per_second,
                                      uint32_t m1_max_distance,
@@ -166,62 +155,6 @@ float RoboClaw::getMainBatteryLevel() {
   return g_sensor_value_group_.main_battery_level;
 }
 
-float RoboClaw::cache_getMainBatteryLevel() {
-  int retry;
-
-  for (retry = 0; retry < maxCommandRetries_; retry++) {
-    try {
-      float result = ((float)get2ByteCommandResult(kGETMBATT)) / 10.0;
-      return result;
-    } catch (TRoboClawException *e) {
-      RCUTILS_LOG_ERROR_EXPRESSION(
-          "[RoboClaw::cache_getMainBatteryLevel] Exception: %s, retry number: "
-          "%d",
-          e->what(), retry);
-    } catch (...) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::cache_getMainBatteryLevel] Uncaught exception !!!");
-    }
-  }
-
-  RCUTILS_LOG_ERROR(
-      "[RoboClaw::cache_getMainBatteryLevel] RETRY COUNT EXCEEDED");
-  throw new TRoboClawException(
-      "[RoboClaw::cache_getMainBatteryLevel] RETRY COUNT EXCEEDED");
-}
-
-unsigned short RoboClaw::get2ByteCommandResult(uint8_t command) {
-  uint16_t crc = 0;
-  updateCrc(crc, portAddress_);
-  updateCrc(crc, command);
-
-  writeN(false, 2, portAddress_, command);
-  unsigned short result = 0;
-  uint8_t datum = readByteWithTimeout();
-  result |= datum << 8;
-  updateCrc(crc, datum);
-
-  datum = readByteWithTimeout();
-  result |= datum;
-  updateCrc(crc, datum);
-
-  uint16_t responseCrc = 0;
-  datum = readByteWithTimeout();
-  responseCrc = datum << 8;
-  datum = readByteWithTimeout();
-  responseCrc |= datum;
-  if (responseCrc == crc) {
-    return result;
-  } else {
-    RCUTILS_LOG_ERROR("[RoboClaw::get2ByteCommandResult] invalid CRC expected: "
-                      "0x%02X, got: 0x%02X",
-                      crc, responseCrc);
-    throw new TRoboClawException(
-        "[RoboClaw::get2ByteCommandResult] INVALID CRC");
-    return 0;
-  }
-}
-
 // ### change result type to uint16_t
 unsigned short RoboClaw::get2ByteCommandResult2(uint8_t command) {
   uint16_t crc = 0;
@@ -251,7 +184,7 @@ unsigned short RoboClaw::get2ByteCommandResult2(uint8_t command) {
         "0x%02X, got: 0x%02X",
         crc, responseCrc);
     throw new TRoboClawException(
-        "[RoboClaw::get2ByteCommandResult] INVALID CRC");
+        "[RoboClaw::get2ByteCommandResult2 INVALID CRC");
     return 0;
   }
 }
@@ -265,88 +198,6 @@ RoboClaw::TPIDQ RoboClaw::getPIDQM1() { return g_sensor_value_group_.m1_pidq; }
 RoboClaw::TPIDQ RoboClaw::getPIDQM2() { return g_sensor_value_group_.m2_pidq; }
 
 float RoboClaw::getTemperature() { return g_sensor_value_group_.temperature; }
-
-float RoboClaw::cache_getTemperature() {
-  int retry;
-
-  for (retry = 0; retry < maxCommandRetries_; retry++) {
-    try {
-      uint16_t crc = 0;
-      updateCrc(crc, portAddress_);
-      updateCrc(crc, kGETTEMPERATURE);
-      writeN(false, 2, portAddress_, kGETTEMPERATURE);
-      uint16_t result = 0;
-      uint8_t datum = readByteWithTimeout();
-      updateCrc(crc, datum);
-      result = datum << 8;
-      datum = readByteWithTimeout();
-      updateCrc(crc, datum);
-      result |= datum;
-
-      uint16_t responseCrc = 0;
-      datum = readByteWithTimeout();
-      responseCrc = datum << 8;
-      datum = readByteWithTimeout();
-      responseCrc |= datum;
-      if (responseCrc == crc) {
-        return result / 10.0;
-      } else {
-        RCUTILS_LOG_ERROR(
-            "[RoboClaw::cache_getTemperature] invalid CRC expected: 0x%2X, "
-            "got: 0x%2X",
-            crc, responseCrc);
-      }
-    } catch (TRoboClawException *e) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::cache_getTemperature] Exception: %s, retry number: %d",
-          e->what(), retry);
-    } catch (...) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::cache_getTemperature] Uncaught exception !!!");
-    }
-  }
-
-  RCUTILS_LOG_ERROR("[RoboClaw::cache_getTemperature] RETRY COUNT EXCEEDED");
-  throw new TRoboClawException(
-      "[RoboClaw::cache_getTemperature] RETRY COUNT EXCEEDED");
-}
-
-unsigned long RoboClaw::getUlongCommandResult(uint8_t command) {
-  uint16_t crc = 0;
-  updateCrc(crc, portAddress_);
-  updateCrc(crc, command);
-
-  writeN(false, 2, portAddress_, command);
-  unsigned long result = 0;
-  uint8_t datum = readByteWithTimeout();
-  result |= datum << 24;
-  updateCrc(crc, datum);
-  datum = readByteWithTimeout();
-  result |= datum << 16;
-  updateCrc(crc, datum);
-  datum = readByteWithTimeout();
-  result |= datum << 8;
-  updateCrc(crc, datum);
-  datum = readByteWithTimeout();
-  result |= datum;
-  updateCrc(crc, datum);
-
-  uint16_t responseCrc = 0;
-  datum = readByteWithTimeout();
-  responseCrc = datum << 8;
-  datum = readByteWithTimeout();
-  responseCrc |= datum;
-  if (responseCrc == crc) {
-    return result;
-  }
-
-  RCUTILS_LOG_ERROR(
-      "[RoboClaw::getUlongCommandResult] Expected CRC of: 0x%02X, but "
-      "got: 0x%02X",
-      int(crc), int(responseCrc));
-  throw new TRoboClawException("[RoboClaw::getUlongCommandResult] INVALID CRC");
-  return 0;
-}
 
 unsigned long RoboClaw::getUlongCommandResult2(uint8_t command) {
   uint16_t crc = 0;
@@ -575,61 +426,6 @@ void RoboClaw::openPort() {
   // portOptions.c_cc[VKILL] = 8;
 }
 
-uint8_t RoboClaw::readByteWithTimeout() {
-  struct pollfd ufd[1];
-  ufd[0].fd = device_port_;
-  ufd[0].events = POLLIN;
-
-  int retval = poll(ufd, 1, 11);
-  if (retval < 0) {
-    RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout] Poll failed (%d) %s",
-                      errno, strerror(errno));
-    throw new TRoboClawException("[RoboClaw::readByteWithTimeout] Read error");
-  } else if (retval == 0) {
-    std::stringstream ev;
-    ev << "[RoboClaw::readByteWithTimeout] TIMEOUT revents: " << std::hex
-       << ufd[0].revents;
-    RCUTILS_LOG_ERROR(ev.str().c_str());
-    throw new TRoboClawException("[RoboClaw::readByteWithTimeout] TIMEOUT");
-  } else if (ufd[0].revents & POLLERR) {
-    RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout] Error on socket");
-    restartPort();
-    throw new TRoboClawException(
-        "[RoboClaw::readByteWithTimeout] Error on socket");
-  } else if (ufd[0].revents & POLLIN) {
-    unsigned char buffer[1];
-    ssize_t bytesRead = ::read(device_port_, buffer, sizeof(buffer));
-    if (bytesRead != 1) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::readByteWithTimeout] Failed to read 1 byte, read: "
-          "%d",
-          (int)bytesRead);
-      throw TRoboClawException(
-          "[RoboClaw::readByteWithTimeout] Failed to read 1 byte");
-    }
-
-    static const bool kDEBUG_READBYTE = true;
-    if (kDEBUG_READBYTE) {
-      if ((buffer[0] < 0x21) || (buffer[0] > 0x7F)) {
-        // RCUTILS_LOG_INFO("read ..> char: ?? 0x%02X <--", buffer[0]);
-        // fprintf(stderr, "..> char: ?? 0x%02X <--", buffer[0]);
-      } else {
-        // RCUTILS_LOG_INFO("read ..> char: %c  0x%02X <--", buffer[0],
-        // buffer[0]); fprintf(stderr, "..> char: %c  0x%02X <--", buffer[0],
-        // buffer[0]);
-      }
-    }
-
-    return buffer[0];
-  } else {
-    RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout] Unhandled case");
-    throw new TRoboClawException(
-        "[RoboClaw::readByteWithTimeout] Unhandled case");
-  }
-
-  return 0;
-}
-
 uint8_t RoboClaw::readByteWithTimeout2() {
   struct pollfd ufd[1];
   ufd[0].fd = device_port_;
@@ -637,30 +433,30 @@ uint8_t RoboClaw::readByteWithTimeout2() {
 
   int retval = poll(ufd, 1, 11);
   if (retval < 0) {
-    RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout] Poll failed (%d) %s",
+    RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout2 Poll failed (%d) %s",
                       errno, strerror(errno));
-    throw new TRoboClawException("[RoboClaw::readByteWithTimeout] Read error");
+    throw new TRoboClawException("[RoboClaw::readByteWithTimeout2 Read error");
   } else if (retval == 0) {
     std::stringstream ev;
-    ev << "[RoboClaw::readByteWithTimeout] TIMEOUT revents: " << std::hex
+    ev << "[RoboClaw::readByteWithTimeout2 TIMEOUT revents: " << std::hex
        << ufd[0].revents;
     RCUTILS_LOG_ERROR(ev.str().c_str());
-    throw new TRoboClawException("[RoboClaw::readByteWithTimeout] TIMEOUT");
+    throw new TRoboClawException("[RoboClaw::readByteWithTimeout2 TIMEOUT");
   } else if (ufd[0].revents & POLLERR) {
-    RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout] Error on socket");
+    RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout2 Error on socket");
     restartPort();
     throw new TRoboClawException(
-        "[RoboClaw::readByteWithTimeout] Error on socket");
+        "[RoboClaw::readByteWithTimeout2 Error on socket");
   } else if (ufd[0].revents & POLLIN) {
     unsigned char buffer[1];
     ssize_t bytesRead = ::read(device_port_, buffer, sizeof(buffer));
     if (bytesRead != 1) {
       RCUTILS_LOG_ERROR(
-          "[RoboClaw::readByteWithTimeout] Failed to read 1 byte, read: "
+          "[RoboClaw::readByteWithTimeout2 Failed to read 1 byte, read: "
           "%d",
           (int)bytesRead);
       throw TRoboClawException(
-          "[RoboClaw::readByteWithTimeout] Failed to read 1 byte");
+          "[RoboClaw::readByteWithTimeout2 Failed to read 1 byte");
     }
 
     static const bool kDEBUG_READBYTE = true;
@@ -680,9 +476,9 @@ uint8_t RoboClaw::readByteWithTimeout2() {
 
     return buffer[0];
   } else {
-    RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout] Unhandled case");
+    RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout2 Unhandled case");
     throw new TRoboClawException(
-        "[RoboClaw::readByteWithTimeout] Unhandled case");
+        "[RoboClaw::readByteWithTimeout2 Unhandled case");
   }
 
   return 0;
@@ -763,8 +559,6 @@ bool RoboClaw::resetEncoders(
     CmdSetEncoderValue m2(*this, kM2, request.right);
     m1.execute();
     m2.execute();
-    // SetEncoder(kSETM1ENCODER, request.left);
-    // SetEncoder(kSETM2ENCODER, request.right);
     response.ok = true;
   } catch (...) {
     RCUTILS_LOG_ERROR("[RoboClaw::resetEncoders] uncaught exception");
@@ -778,32 +572,6 @@ void RoboClaw::restartPort() {
   openPort();
 }
 
-void RoboClaw::SetEncoder(ROBOCLAW_COMMAND command, long value) {
-  int retry;
-
-  if ((command != kSETM1ENCODER) && (command != kSETM2ENCODER)) {
-    RCUTILS_LOG_ERROR("[RoboClaw::SetEncoder] Invalid command value");
-    throw new TRoboClawException(
-        "[RoboClaw::SetEncoder] Invalid command value");
-  }
-
-  for (retry = 0; retry < maxCommandRetries_; retry++) {
-    try {
-      writeN(true, 6, portAddress_, command, SetDWORDval(value));
-      return;
-    } catch (TRoboClawException *e) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::SetEncoder] Exception: %s, retry number: %d", e->what(),
-          retry);
-    } catch (...) {
-      RCUTILS_LOG_ERROR("[RoboClaw::SetEncoder] Uncaught exception !!!");
-    }
-  }
-
-  RCUTILS_LOG_ERROR("[RoboClaw::SetEncoder] RETRY COUNT EXCEEDED");
-  throw new TRoboClawException("[RoboClaw::SetEncoder] RETRY COUNT EXCEEDED");
-}
-
 void RoboClaw::setM1PID(float p, float i, float d, uint32_t qpps) {
   CmdSetPid command(*this, kM1, p, i, d, qpps);
   command.execute();
@@ -815,24 +583,8 @@ void RoboClaw::setM2PID(float p, float i, float d, uint32_t qpps) {
 }
 
 void RoboClaw::stop() {
-  int retry;
-
-  for (retry = 0; retry < maxCommandRetries_; retry++) {
-    try {
-      writeN(true, 6, portAddress_, kMIXEDDUTY, 0, 0, 0, 0);
-      RCUTILS_LOG_INFO("[RoboClaw::stop] Stop requested"); // #####
-      return;
-    } catch (TRoboClawException *e) {
-      RCUTILS_LOG_ERROR("[RoboClaw::stop] Exception: %s, retry number: %d",
-                        e->what(), retry);
-      restartPort();
-    } catch (...) {
-      RCUTILS_LOG_ERROR("[RoboClaw::stop] Uncaught exception !!!");
-    }
-  }
-
-  RCUTILS_LOG_ERROR("[RoboClaw::stop] RETRY COUNT EXCEEDED");
-  throw new TRoboClawException("[RoboClaw::stop] RETRY COUNT EXCEEDED");
+  CmdDoBufferedM2M2DriveSpeedAccelDistance stopCommand(*this, 0, 0, 0, 0, 0);
+  stopCommand.execute();
 }
 
 void RoboClaw::updateCrc(uint16_t &crc, uint8_t data) {
@@ -842,24 +594,6 @@ void RoboClaw::updateCrc(uint16_t &crc, uint8_t data) {
       crc = (crc << 1) ^ 0x1021;
     else
       crc <<= 1;
-  }
-}
-
-void RoboClaw::writeByte(uint8_t byte) {
-  ssize_t result;
-  do {
-    result = ::write(device_port_, &byte, 1);
-    RCUTILS_LOG_INFO("--> wrote: 0x%02X, result: %ld", byte, result); // ####
-  } while (result == -1 && errno == EAGAIN);
-
-  if (result != 1) {
-    RCUTILS_LOG_ERROR(
-        "[RoboClaw::writeByte] Unable to write one byte, result: %d, "
-        "errno: %d)",
-        (int)result, errno);
-    restartPort();
-    throw new TRoboClawException(
-        "[RoboClaw::writeByte] Unable to write one byte");
   }
 }
 
@@ -880,50 +614,13 @@ void RoboClaw::writeByte2(uint8_t byte) {
   } while (result == -1 && errno == EAGAIN);
 
   if (result != 1) {
-    RCUTILS_LOG_ERROR(
-        "[RoboClaw::writeByte] Unable to write one byte, result: %d, "
-        "errno: %d)",
-        (int)result, errno);
+    RCUTILS_LOG_ERROR("[RoboClaw::writeByte2to write one byte, result: %d, "
+                      "errno: %d)",
+                      (int)result, errno);
     restartPort();
     throw new TRoboClawException(
-        "[RoboClaw::writeByte] Unable to write one byte");
+        "[RoboClaw::writeByte2 Unable to write one byte");
   }
-}
-
-void RoboClaw::writeN(bool sendCRC, uint8_t cnt, ...) {
-  uint16_t crc = 0;
-  va_list marker;
-  va_start(marker, cnt);
-  char msg[128];
-
-  // int origFlags = fcntl(device_port_, F_GETFL, 0);
-  // fcntl(device_port_, F_SETFL, origFlags & ~O_NONBLOCK);
-
-  for (uint8_t i = 0; i < cnt; i++) {
-    uint8_t byte = va_arg(marker, int);
-    updateCrc(crc, byte);
-    writeByte(byte);
-  }
-
-  va_end(marker);
-
-  if (sendCRC) {
-    writeByte(crc >> 8);
-    writeByte(crc);
-
-    uint8_t response = readByteWithTimeout();
-    if (response != 0xFF) {
-      snprintf(
-          msg, sizeof(msg),
-          "[RoboClaw::writeN2] Invalid ACK response, expected 0xFF but got "
-          "0x%02X",
-          response);
-      RCUTILS_LOG_ERROR("%s", msg);
-      throw new TRoboClawException(msg);
-    }
-  }
-
-  // fcntl(device_port_, F_SETFL, origFlags);
 }
 
 void RoboClaw::writeN2(bool sendCRC, uint8_t cnt, ...) {

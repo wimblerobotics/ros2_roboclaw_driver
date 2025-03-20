@@ -104,10 +104,10 @@ public:
     va_end(args);
   }
 
-  void doMixedSpeedDist(int32_t m1_quad_pulses_per_second,
-                        int32_t m1_max_distance,
-                        int32_t m2_quad_pulses_per_second,
-                        int32_t m2_max_distance);
+  // void doMixedSpeedDist(int32_t m1_quad_pulses_per_second,
+  //                       int32_t m1_max_distance,
+  //                       int32_t m2_quad_pulses_per_second,
+  //                       int32_t m2_max_distance);
 
   void doMixedSpeedAccelDist(uint32_t accel_quad_pulses_per_second,
                              int32_t m1_quad_pulses_per_second,
@@ -169,8 +169,6 @@ public:
 
 protected:
   // Write a stream of bytes to the device.
-  void writeN(bool sendCRC, uint8_t cnt, ...);
-
   void writeN2(bool sendCRC, uint8_t cnt, ...);
 
 private:
@@ -182,13 +180,6 @@ private:
 
   // Get RoboClaw error status as a string.
   std::string getErrorString(uint16_t errorStatus);
-
-  int32_t cache_getM1Speed();
-  int32_t cache_getM2Speed();
-
-  float cache_getMainBatteryLevel();
-
-  float cache_getTemperature();
 
   static void sensorReadThread();
 
@@ -305,21 +296,14 @@ private:
   // Get velocity (speed) result from the RoboClaw controller.
   int32_t getVelocityResult(uint8_t command);
 
-  unsigned long getUlongCommandResult(uint8_t command);
-
   unsigned long getUlongCommandResult2(uint8_t command);
 
   uint32_t getULongCont2(uint16_t &crc);
-
-  unsigned short get2ByteCommandResult(uint8_t command);
 
   unsigned short get2ByteCommandResult2(uint8_t command);
 
   // Open the RoboClaw USB port.
   void openPort();
-
-  // Read one byte from device with timeout.
-  uint8_t readByteWithTimeout();
 
   // Read one byte from device with timeout.
   uint8_t readByteWithTimeout2();
@@ -342,12 +326,7 @@ private:
   void updateCrc(uint16_t &crc, uint8_t data);
 
   // Write one byte to the device.
-  void writeByte(uint8_t byte);
-
-  // Write one byte to the device.
   void writeByte2(uint8_t byte);
-
-  void SetEncoder(ROBOCLAW_COMMAND command, long value);
 
   static RoboClaw *g_singleton;
 
@@ -529,8 +508,6 @@ private:
       roboclaw_.appendToWriteLog(
           "SetEncoderValue: motor: %d (%s) value: %ld, WROTE: ", motor_,
           motorNames_[motor_], value_);
-      // roboclaw_.SetEncoder(motor_ == kM1 ? kSETM1ENCODER : kSETM2ENCODER,
-      //                      value_);
       try {
         roboclaw_.writeN2(true, 6, roboclaw_.portAddress_,
                           motor_ == kM1 ? kSETM1ENCODER : kSETM2ENCODER,
@@ -832,7 +809,7 @@ private:
         responseCrc |= datum;
         if (responseCrc != crc) {
           RCUTILS_LOG_ERROR(
-              "[RoboClaw::cache_getTemperature] invalid CRC expected: 0x%2X, "
+              "[RoboClaw::CmdReadTemperature] invalid CRC expected: 0x%2X, "
               "got: 0x%2X",
               crc, responseCrc);
           result = 0.0;
@@ -841,7 +818,7 @@ private:
         temperature_ = result / 10.0;
       } catch (...) {
         RCUTILS_LOG_ERROR(
-            "[RoboClaw::cache_getTemperature] Uncaught exception !!!");
+            "[RoboClaw::CmdReadTemperature] Uncaught exception !!!");
       }
 
       roboclaw_.appendToReadLog(", RESULT: %f", temperature_);
