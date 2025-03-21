@@ -1,6 +1,5 @@
 #include "roboclaw.h"
 
-#include <cstdint>
 #include <fcntl.h>
 #include <math.h>
 #include <poll.h>
@@ -11,6 +10,7 @@
 #include <unistd.h>
 
 #include <boost/assign.hpp>
+#include <cstdint>
 #include <iostream>
 #include <rclcpp/rclcpp.hpp>
 #include <sstream>
@@ -24,10 +24,15 @@ std::mutex RoboClaw::buffered_command_mutex_;
 
 RoboClaw::RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
                    float m2MaxCurrent, std::string device_name,
-                   uint8_t device_port)
-    : doDebug_(true), doLowLevelDebug_(true), device_port_(device_port),
-      maxCommandRetries_(3), maxM1Current_(m1MaxCurrent),
-      maxM2Current_(m2MaxCurrent), device_name_(device_name),
+                   uint8_t device_port, uint32_t baud_rate)
+    : doDebug_(true),
+      doLowLevelDebug_(true),
+      baud_rate_(baud_rate),
+      device_port_(device_port),
+      maxCommandRetries_(3),
+      maxM1Current_(m1MaxCurrent),
+      maxM2Current_(m2MaxCurrent),
+      device_name_(device_name),
       portAddress_(128) {
   openPort();
   RCUTILS_LOG_INFO("[RoboClaw::RoboClaw] RoboClaw software version: %s",
@@ -287,8 +292,7 @@ int32_t RoboClaw::getVelocityResult(uint8_t command) {
 
   uint8_t direction = readByteWithTimeout2();
   updateCrc(crc, direction);
-  if (direction != 0)
-    result = -result;
+  if (direction != 0) result = -result;
 
   uint16_t responseCrc = 0;
   datum = readByteWithTimeout2();
@@ -349,56 +353,93 @@ void RoboClaw::openPort() {
 
   ret = tcgetattr(device_port_, &portOptions);
   if (ret < 0) {
-    RCUTILS_LOG_ERROR("[RoboClaw::openPort] Unable to get terminal options "
-                      "(tcgetattr), error: %d: %s",
-                      errno, strerror(errno));
+    RCUTILS_LOG_ERROR(
+        "[RoboClaw::openPort] Unable to get terminal options "
+        "(tcgetattr), error: %d: %s",
+        errno, strerror(errno));
     throw new TRoboClawException(
         "[RoboClaw::openPort] Unable to get terminal options (tcgetattr)");
   }
 
   if (cfsetispeed(&portOptions, B38400) < 0) {
-    RCUTILS_LOG_ERROR("[RoboClaw::openPort] Unable to set terminal speed "
-                      "(cfsetispeed)");
+    RCUTILS_LOG_ERROR(
+        "[RoboClaw::openPort] Unable to set terminal speed "
+        "(cfsetispeed)");
     throw new TRoboClawException(
         "[RoboClaw::openPort] Unable to set terminal speed "
         "(cfsetispeed)");
   }
+  
+  speed_t baud;
+  switch (baud_rate_) {
+    case 9600:
+      baud = B9600;
+      break;
+    case 19200:
+      baud = B19200;
+      break;
+    case 38400:
+      baud = B38400;
+      break;
+    case 57600:
+      baud = B57600;
+      break;
+    case 115200:
+      baud = B115200;
+      break;
+    default:
+      RCUTILS_LOG_ERROR("[RoboClaw::openPort] Unsupported baud rate: %u", baud_rate_);
+      throw new TRoboClawException("[RoboClaw::openPort] Unsupported baud rate");
+  }
 
+  if (cfsetispeed(&portOptions, baud) < 0) {
+    RCUTILS_LOG_ERROR(
+        "[RoboClaw::openPort] Unable to set terminal input speed "
+        "(cfsetispeed)");
+    throw new TRoboClawException(
+        "[RoboClaw::openPort] Unable to set terminal input speed "
+        "(cfsetispeed)");
+  }
   if (cfsetospeed(&portOptions, B38400) < 0) {
-    RCUTILS_LOG_ERROR("[RoboClaw::openPort] Unable to set terminal speed "
-                      "(cfsetospeed)");
+    RCUTILS_LOG_ERROR(
+        "[RoboClaw::openPort] Unable to set terminal speed "
+        "(cfsetospeed)");
     throw new TRoboClawException(
         "[RoboClaw::openPort] Unable to set terminal speed "
         "(cfsetospeed)");
   }
 
   // Configure other settings
-  portOptions.c_cflag &= ~PARENB;        // Disable parity.
-  portOptions.c_cflag &= ~CSTOPB;        // 1 stop bit
-  portOptions.c_cflag &= ~CSIZE;         // Clear data size bits
-  portOptions.c_cflag |= CS8;            // 8 data bits
-  portOptions.c_cflag &= ~CRTSCTS;       // Disable hardware flow control
-  portOptions.c_cflag |= CREAD | CLOCAL; // Enable read and ignore control lines
+  portOptions.c_cflag &= ~PARENB;   // Disable parity.
+  portOptions.c_cflag &= ~CSTOPB;   // 1 stop bit
+  portOptions.c_cflag &= ~CSIZE;    // Clear data size bits
+  portOptions.c_cflag |= CS8;       // 8 data bits
+  portOptions.c_cflag &= ~CRTSCTS;  // Disable hardware flow control
+  portOptions.c_cflag |=
+      CREAD | CLOCAL;  // Enable read and ignore control lines
 
-  portOptions.c_lflag &= ~ICANON; // Disable canonical mode
-  portOptions.c_lflag &= ~ECHO;   // Disable echo
-  portOptions.c_lflag &= ~ECHOE;  // Disable erasure
-  portOptions.c_lflag &= ~ECHONL; // Disable new-line echo
-  portOptions.c_lflag &= ~ISIG; // Disable interpretation of INTR, QUIT and SUSP
+  portOptions.c_lflag &= ~ICANON;  // Disable canonical mode
+  portOptions.c_lflag &= ~ECHO;    // Disable echo
+  portOptions.c_lflag &= ~ECHOE;   // Disable erasure
+  portOptions.c_lflag &= ~ECHONL;  // Disable new-line echo
+  portOptions.c_lflag &=
+      ~ISIG;  // Disable interpretation of INTR, QUIT and SUSP
 
   portOptions.c_iflag &=
-      ~(IXON | IXOFF | IXANY); // Disable software flow control
-  portOptions.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR |
-                           ICRNL); // Disable special handling of received bytes
+      ~(IXON | IXOFF | IXANY);  // Disable software flow control
+  portOptions.c_iflag &=
+      ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR |
+        ICRNL);  // Disable special handling of received bytes
 
-  portOptions.c_oflag &= ~OPOST; // Disable output processing
+  portOptions.c_oflag &= ~OPOST;  // Disable output processing
 
-  portOptions.c_cc[VMIN] = 0;  // Non-blocking read
-  portOptions.c_cc[VTIME] = 5; // Timeout of 0.5 seconds
+  portOptions.c_cc[VMIN] = 0;   // Non-blocking read
+  portOptions.c_cc[VTIME] = 5;  // Timeout of 0.5 seconds
 
   if (tcsetattr(device_port_, TCSANOW, &portOptions) != 0) {
-    RCUTILS_LOG_ERROR("[RoboClaw::openPort] Unable to set terminal options "
-                      "(tcsetattr)");
+    RCUTILS_LOG_ERROR(
+        "[RoboClaw::openPort] Unable to set terminal options "
+        "(tcsetattr)");
     throw new TRoboClawException(
         "[RoboClaw::openPort] Unable to set terminal options "
         "(tcsetattr)");
@@ -614,9 +655,10 @@ void RoboClaw::writeByte2(uint8_t byte) {
   } while (result == -1 && errno == EAGAIN);
 
   if (result != 1) {
-    RCUTILS_LOG_ERROR("[RoboClaw::writeByte2to write one byte, result: %d, "
-                      "errno: %d)",
-                      (int)result, errno);
+    RCUTILS_LOG_ERROR(
+        "[RoboClaw::writeByte2to write one byte, result: %d, "
+        "errno: %d)",
+        (int)result, errno);
     restartPort();
     throw new TRoboClawException(
         "[RoboClaw::writeByte2 Unable to write one byte");

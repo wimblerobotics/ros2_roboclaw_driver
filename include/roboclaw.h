@@ -86,7 +86,7 @@ public:
 
   // Constructor.
   RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
-           float m2MaxCurrent, std::string device_name, uint8_t device_port);
+           float m2MaxCurrent, std::string device_name, uint8_t device_port, uint32_t baud_rate);
 
   ~RoboClaw();
 
@@ -276,6 +276,7 @@ private:
     GETM1MAXCURRENT = 135
   } ROBOCLAW_COMMAND;
 
+  int baud_rate_; // Baud rate for RoboClaw connection.
   int device_port_; // Unix file descriptor for RoboClaw connection.
   float m1p_;
   float m1i_;

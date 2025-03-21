@@ -20,6 +20,7 @@ MotorDriver::MotorDriver()
     : Node("motor_driver_node"), device_name_("foo_bar"),
       wheel_radius_(0.10169), wheel_separation_(0.345) {
   this->declare_parameter<int>("accel_quad_pulses_per_second", 600);
+  this->declare_parameter<int>("baud_rate", 38400);
   this->declare_parameter<std::string>("device_name", "roboclaw");
   this->declare_parameter<int>("device_port", 123);
   this->declare_parameter<float>("m1_p", 0.0);
@@ -79,6 +80,7 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
   node_ = node;
   this->get_parameter("accel_quad_pulses_per_second",
                       accel_quad_pulses_per_second_);
+  this->get_parameter("baud_rate", baud_rate_);
   this->get_parameter("device_name", device_name_);
   this->get_parameter("device_port", device_port_);
   this->get_parameter("m1_p", m1_p_);
@@ -106,6 +108,7 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
 
   RCUTILS_LOG_INFO("accel_quad_pulses_per_second: %d",
                    accel_quad_pulses_per_second_);
+  RCUTILS_LOG_INFO("baud_rate: %d", baud_rate_);
   RCUTILS_LOG_INFO("device_name: %s", device_name_.c_str());
   RCUTILS_LOG_INFO("device_port: %d", device_port_);
   RCUTILS_LOG_INFO("m1_p: %f", m1_p_);
@@ -134,7 +137,7 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
   RoboClaw::TPIDQ m2Pid = {m2_p_, m2_i_, m2_d_, m2_qpps_, m2_max_current_};
 
   new RoboClaw(m1Pid, m2Pid, m1_max_current_, m2_max_current_,
-               device_name_.c_str(), device_port_);
+               device_name_.c_str(), device_port_, baud_rate_);
   RCUTILS_LOG_INFO("Main battery: %f",
                    RoboClaw::singleton()->getMainBatteryLevel());
 

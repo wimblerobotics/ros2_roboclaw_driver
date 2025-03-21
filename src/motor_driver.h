@@ -25,6 +25,7 @@ class MotorDriver : public rclcpp::Node {
   static void publisherThread();
 
   uint32_t accel_quad_pulses_per_second_;
+  uint32_t baud_rate_;
   std::string device_name_;
   uint8_t device_port_;
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_publisher_;
