@@ -59,7 +59,7 @@ void RoboClaw::doMixedSpeedAccelDist(uint32_t accel_quad_pulses_per_second,
                                      uint32_t m1_max_distance,
                                      int32_t m2_quad_pulses_per_second,
                                      uint32_t m2_max_distance) {
-  CmdDoBufferedM2M2DriveSpeedAccelDistance command(
+  CmdDoBufferedM1M2DriveSpeedAccelDistance command(
       *this, accel_quad_pulses_per_second, m1_quad_pulses_per_second,
       m1_max_distance, m2_quad_pulses_per_second, m2_max_distance);
   command.execute();
@@ -369,7 +369,7 @@ void RoboClaw::openPort() {
         "[RoboClaw::openPort] Unable to set terminal speed "
         "(cfsetispeed)");
   }
-  
+
   speed_t baud;
   switch (baud_rate_) {
     case 9600:
@@ -388,8 +388,10 @@ void RoboClaw::openPort() {
       baud = B115200;
       break;
     default:
-      RCUTILS_LOG_ERROR("[RoboClaw::openPort] Unsupported baud rate: %u", baud_rate_);
-      throw new TRoboClawException("[RoboClaw::openPort] Unsupported baud rate");
+      RCUTILS_LOG_ERROR("[RoboClaw::openPort] Unsupported baud rate: %u",
+                        baud_rate_);
+      throw new TRoboClawException(
+          "[RoboClaw::openPort] Unsupported baud rate");
   }
 
   if (cfsetispeed(&portOptions, baud) < 0) {
@@ -624,7 +626,7 @@ void RoboClaw::setM2PID(float p, float i, float d, uint32_t qpps) {
 }
 
 void RoboClaw::stop() {
-  CmdDoBufferedM2M2DriveSpeedAccelDistance stopCommand(*this, 0, 0, 0, 0, 0);
+  CmdDoBufferedM1M2DriveSpeedAccelDistance stopCommand(*this, 0, 0, 0, 0, 0);
   stopCommand.execute();
 }
 

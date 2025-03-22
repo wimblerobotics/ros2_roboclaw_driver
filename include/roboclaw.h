@@ -1,15 +1,15 @@
 #pragma once
 
-#include <cstdint>
 #include <rcutils/logging_macros.h>
+#include <sys/types.h>
 
 #include <chrono>
+#include <cstdarg>  // Include cstdarg for va_list
+#include <cstdint>
+#include <mutex>  // Include mutex header
 #include <rclcpp/logger.hpp>
 #include <sstream>
 #include <string>
-
-#include <mutex> // Include mutex header
-#include <sys/types.h>
 
 #include "ros2_roboclaw_driver/srv/reset_encoders.hpp"
 
@@ -27,19 +27,19 @@
    thread.
 */
 
-#define SetDWORDval(arg)                                                       \
+#define SetDWORDval(arg) \
   (uint8_t)(arg >> 24), (uint8_t)(arg >> 16), (uint8_t)(arg >> 8), (uint8_t)arg
 
 class RoboClaw {
-public:
+ public:
   enum kMotor { kM1 = 0, kM2 = 1, kNone = 2 };
 
   // Bit positions used to build alarms.
   enum {
-    kM1_OVER_CURRENT = 0x01,       // Motor 1 current sense is too high.
-    kM2_OVER_CURRENT = 0x02,       // Motor 2 current sense is too high.
-    kM1_OVER_CURRENT_ALARM = 0x04, // Motor 1 controller over current alarm.
-    kM2_OVER_CURRENT_ALARM = 0x08, // Motor 2 controller over current alarm.
+    kM1_OVER_CURRENT = 0x01,        // Motor 1 current sense is too high.
+    kM2_OVER_CURRENT = 0x02,        // Motor 2 current sense is too high.
+    kM1_OVER_CURRENT_ALARM = 0x04,  // Motor 1 controller over current alarm.
+    kM2_OVER_CURRENT_ALARM = 0x08,  // Motor 2 controller over current alarm.
   };
 
   // Referencing which encoder in the RoboClaw
@@ -73,7 +73,14 @@ public:
   // For a custom exception message.
   struct TRoboClawException : public std::exception {
     std::string s;
-    TRoboClawException(std::string ss) : s(ss) {}
+    TRoboClawException(const char *format, ...) {
+      char buffer[256];
+      va_list args;
+      va_start(args, format);
+      vsnprintf(buffer, sizeof(buffer), format, args);
+      va_end(args);
+      s = std::string(buffer);
+    }
     ~TRoboClawException() throw() {}
     const char *what() const throw() { return s.c_str(); }
   };
@@ -86,7 +93,8 @@ public:
 
   // Constructor.
   RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
-           float m2MaxCurrent, std::string device_name, uint8_t device_port, uint32_t baud_rate);
+           float m2MaxCurrent, std::string device_name, uint8_t device_port,
+           uint32_t baud_rate);
 
   ~RoboClaw();
 
@@ -167,11 +175,11 @@ public:
 
   void readSensorGroup();
 
-protected:
+ protected:
   // Write a stream of bytes to the device.
   void writeN2(bool sendCRC, uint8_t cnt, ...);
 
-private:
+ private:
   // True => print debug messages.
   bool doDebug_;
 
@@ -276,8 +284,8 @@ private:
     GETM1MAXCURRENT = 135
   } ROBOCLAW_COMMAND;
 
-  int baud_rate_; // Baud rate for RoboClaw connection.
-  int device_port_; // Unix file descriptor for RoboClaw connection.
+  int baud_rate_;    // Baud rate for RoboClaw connection.
+  int device_port_;  // Unix file descriptor for RoboClaw connection.
   float m1p_;
   float m1i_;
   float m1d_;
@@ -286,13 +294,13 @@ private:
   float m2i_;
   float m2d_;
   int m2qpps_;
-  int maxCommandRetries_;   // Maximum number of times to retry a RoboClaw
-                            // command.
-  float maxM1Current_;      // Maximum allowed M1 current.
-  float maxM2Current_;      // Maximum allowed M2 current.
-  int motorAlarms_;         // Motors alarms. Bit-wise OR of contributors.
-  std::string device_name_; // Device name of RoboClaw device.
-  int portAddress_;         // Port number of RoboClaw device under control
+  int maxCommandRetries_;    // Maximum number of times to retry a RoboClaw
+                             // command.
+  float maxM1Current_;       // Maximum allowed M1 current.
+  float maxM2Current_;       // Maximum allowed M2 current.
+  int motorAlarms_;          // Motors alarms. Bit-wise OR of contributors.
+  std::string device_name_;  // Device name of RoboClaw device.
+  int portAddress_;          // Port number of RoboClaw device under control
 
   // Get velocity (speed) result from the RoboClaw controller.
   int32_t getVelocityResult(uint8_t command);
@@ -313,9 +321,9 @@ private:
   void restartPort();
 
   // Reset the encoders.
-  bool
-  resetEncoders(ros2_roboclaw_driver::srv::ResetEncoders::Request &request,
-                ros2_roboclaw_driver::srv::ResetEncoders::Response &response);
+  bool resetEncoders(
+      ros2_roboclaw_driver::srv::ResetEncoders::Request &request,
+      ros2_roboclaw_driver::srv::ResetEncoders::Response &response);
 
   // Set the PID for motor M1.
   void setM1PID(float p, float i, float d, uint32_t qpps);
@@ -335,47 +343,51 @@ private:
   char response_log_[256];
 
   class Cmd {
-  public:
+   public:
     void execute() {
       for (int retry = 0; retry < 3 /*### maxCommandRetries_*/; retry++) {
         try {
           std::lock_guard<std::mutex> lock(
-              RoboClaw::buffered_command_mutex_); // Lock the mutex
+              RoboClaw::buffered_command_mutex_);  // Lock the mutex
           send();
+          roboclaw_.debug_log_.showLog();
           return;
         } catch (TRoboClawException *e) {
+          roboclaw_.debug_log_.showLog();
           RCUTILS_LOG_ERROR(
               "[RoboClaw::Cmd::execute] Exception: %s, retry number: %d",
               e->what(), retry);
         } catch (...) {
+          roboclaw_.debug_log_.showLog();
           RCUTILS_LOG_ERROR("[RoboClaw::Cmd::execute] Uncaught exception !!!");
         }
       }
 
+      roboclaw_.debug_log_.showLog();
       RCUTILS_LOG_ERROR("[RoboClaw::Cmd::execute] RETRY COUNT EXCEEDED");
       throw new TRoboClawException(
           "[RoboClaw::Cmd::execute] RETRY COUNT EXCEEDED");
     }
 
-    virtual void send() = 0; // Declare send as a pure virtual function
+    virtual void send() = 0;  // Declare send as a pure virtual function
 
-  protected:
+   protected:
     Cmd(RoboClaw &roboclaw, const char *name, const kMotor motor)
         : motor_(motor), roboclaw_(roboclaw) {
       strncpy(name_, name, sizeof(name_));
-      name_[sizeof(name_) - 1] = '\0'; // Ensure null-termination
+      name_[sizeof(name_) - 1] = '\0';  // Ensure null-termination
     }
 
     kMotor motor_;
     RoboClaw &roboclaw_;
     char name_[32];
 
-  private:
-    Cmd() = delete; // Disallow default constructor
+   private:
+    Cmd() = delete;  // Disallow default constructor
   };
 
   class DebugLog {
-  public:
+   public:
     DebugLog() : next_read_log_index_(0), next_write_log_index_(0) {}
     ~DebugLog() {}
 
@@ -417,23 +429,22 @@ private:
   };
 
   class CmdSetPid : public Cmd {
-  public:
+   public:
     CmdSetPid(RoboClaw &roboclaw, kMotor motor, float p, float i, float d,
               uint32_t qpps)
         : Cmd(roboclaw, "SetPid", motor), p_(p), i_(i), d_(d), qpps_(qpps) {}
 
     void send() override {
-      roboclaw_.appendToWriteLog("SetPid: motor: %d (%s) p: %f, i: %f, d: %f, "
-                                 "qpps: %d, WROTE: ",
-                                 motor_, motorNames_[motor_], p_, i_, d_,
-                                 qpps_);
+      roboclaw_.appendToWriteLog(
+          "SetPid: motor: %d (%s) p: %f, i: %f, d: %f, "
+          "qpps: %d, WROTE: ",
+          motor_, motorNames_[motor_], p_, i_, d_, qpps_);
       uint32_t kp = int(p_ * 65536.0);
       uint32_t ki = int(i_ * 65536.0);
       uint32_t kd = int(d_ * 65536.0);
       roboclaw_.writeN2(true, 18, roboclaw_.portAddress_,
                         motor_ == kM1 ? kSETM1PID : kSETM2PID, SetDWORDval(kd),
                         SetDWORDval(kp), SetDWORDval(ki), SetDWORDval(qpps_));
-      roboclaw_.debug_log_.showLog();
     }
 
     float p_;
@@ -443,7 +454,7 @@ private:
   };
 
   class CmdReadFirmwareVersion : public Cmd {
-  public:
+   public:
     CmdReadFirmwareVersion(RoboClaw &roboclaw, std::string &version)
         : Cmd(roboclaw, "ReadFirmwareVersion", kNone), version_(version) {}
 
@@ -471,14 +482,17 @@ private:
             if (responseCrc == crc) {
               version_ = version.str();
               roboclaw_.appendToReadLog(", RESULT: '%s'", version_.c_str());
-              roboclaw_.debug_log_.showLog();
               return;
             } else {
-              roboclaw_.debug_log_.showLog();
-              RCUTILS_LOG_ERROR("[RoboClaw::CmdReadFirmwareVersion] invalid "
-                                "CRC expected: 0x%02X, "
-                                "got: 0x%02X",
-                                crc, responseCrc);
+              RCUTILS_LOG_ERROR(
+                  "[RoboClaw::CmdReadFirmwareVersion] invalid "
+                  "CRC expected: 0x%02X, "
+                  "got: 0x%02X",
+                  crc, responseCrc);
+              throw new TRoboClawException(
+                  "[RoboClaw::getVersion] Invalid CRC, expected 0x%02X, "
+                  "got 0x%02X",
+                  crc, responseCrc);
             }
           } else {
             version << (char)datum;
@@ -501,7 +515,7 @@ private:
   };
 
   class CmdSetEncoderValue : public Cmd {
-  public:
+   public:
     CmdSetEncoderValue(RoboClaw &roboclaw, kMotor motor, long value)
         : Cmd(roboclaw, "SetEncoderValue", motor), value_(value) {}
 
@@ -525,7 +539,7 @@ private:
   };
 
   class CmdReadStatus : public Cmd {
-  public:
+   public:
     CmdReadStatus(RoboClaw &roboclaw, uint16_t &status)
         : Cmd(roboclaw, "ReadStatus", kNone), status_(status) {}
     void send() override {
@@ -561,7 +575,7 @@ private:
   };
 
   class CmdReadLogicBatteryVoltage : public Cmd {
-  public:
+   public:
     CmdReadLogicBatteryVoltage(RoboClaw &roboclaw, float &voltage)
         : Cmd(roboclaw, "ReadLogicBatteryVoltage", kNone), voltage_(voltage) {}
     void send() override {
@@ -583,7 +597,7 @@ private:
   };
 
   class CmdReadMainBatteryVoltage : public Cmd {
-  public:
+   public:
     CmdReadMainBatteryVoltage(RoboClaw &roboclaw, float &voltage)
         : Cmd(roboclaw, "ReadLMainBatteryVoltage", kNone), voltage_(voltage) {}
     void send() override {
@@ -605,7 +619,7 @@ private:
   };
 
   class CmdReadEncoder : public Cmd {
-  public:
+   public:
     CmdReadEncoder(RoboClaw &roboclaw, kMotor motor, EncodeResult &encoder)
         : Cmd(roboclaw, "ReadEncoder", motor), encoder_(encoder) {}
     void send() override {
@@ -646,10 +660,11 @@ private:
         datum = roboclaw_.readByteWithTimeout2();
         responseCrc |= datum;
         if (responseCrc != crc) {
-          RCUTILS_LOG_ERROR("[RoboClaw::CmdReadEncoder] Expected "
-                            "CRC of: 0x%02X, but "
-                            "got: 0x%02X",
-                            int(crc), int(responseCrc));
+          RCUTILS_LOG_ERROR(
+              "[RoboClaw::CmdReadEncoder] Expected "
+              "CRC of: 0x%02X, but "
+              "got: 0x%02X",
+              int(crc), int(responseCrc));
           throw new TRoboClawException(
               "[RoboClaw::CmdReadEncoder] INVALID CRC");
         }
@@ -667,7 +682,7 @@ private:
   };
 
   class CmdReadMotorVelocityPIDQ : public Cmd {
-  public:
+   public:
     CmdReadMotorVelocityPIDQ(RoboClaw &roboclaw, kMotor motor, TPIDQ &pidq)
         : Cmd(roboclaw, "ReadMotorVelocityPIDQ", motor), pidq_(pidq) {}
     void send() override {
@@ -700,10 +715,11 @@ private:
           pidq_ = result;
           return;
         } else {
-          RCUTILS_LOG_ERROR("[RoboClaw::CmdReadMotorVelocityPIDQ] invalid CRC "
-                            "expected: 0x%2X, got: "
-                            "0x%2X",
-                            crc, responseCrc);
+          RCUTILS_LOG_ERROR(
+              "[RoboClaw::CmdReadMotorVelocityPIDQ] invalid CRC "
+              "expected: 0x%2X, got: "
+              "0x%2X",
+              crc, responseCrc);
         }
       } catch (...) {
         RCUTILS_LOG_ERROR(
@@ -715,7 +731,7 @@ private:
   };
 
   class CmdReadEncoderSpeed : public Cmd {
-  public:
+   public:
     CmdReadEncoderSpeed(RoboClaw &roboclaw, kMotor motor, int32_t &speed)
         : Cmd(roboclaw, "ReadEncoderSpeed", motor), speed_(speed) {}
     void send() override {
@@ -728,8 +744,9 @@ private:
         roboclaw_.debug_log_.showLog();
         return;
       } catch (...) {
-        RCUTILS_LOG_ERROR("[RoboClaw::CmdReadEncoderSpeed] Uncaught exception "
-                          "!!!");
+        RCUTILS_LOG_ERROR(
+            "[RoboClaw::CmdReadEncoderSpeed] Uncaught exception "
+            "!!!");
       }
     }
 
@@ -737,7 +754,7 @@ private:
   };
 
   class CmdReadMotorCurrents : public Cmd {
-  public:
+   public:
     CmdReadMotorCurrents(RoboClaw &roboclaw, TMotorCurrents &motorCurrents)
         : Cmd(roboclaw, "ReadMotorCurrents", kNone),
           motorCurrents_(motorCurrents) {}
@@ -785,7 +802,7 @@ private:
   };
 
   class CmdReadTemperature : public Cmd {
-  public:
+   public:
     CmdReadTemperature(RoboClaw &roboclaw, float &temperature)
         : Cmd(roboclaw, "ReadTemperature", kNone), temperature_(temperature) {}
     void send() override {
@@ -829,9 +846,9 @@ private:
     float &temperature_;
   };
 
-  class CmdDoBufferedM2M2DriveSpeedAccelDistance : public Cmd {
-  public:
-    CmdDoBufferedM2M2DriveSpeedAccelDistance(
+  class CmdDoBufferedM1M2DriveSpeedAccelDistance : public Cmd {
+   public:
+    CmdDoBufferedM1M2DriveSpeedAccelDistance(
         RoboClaw &roboclaw, uint32_t accel_quad_pulses_per_second,
         int32_t m1_speed_quad_pulses_per_second,
         uint32_t m1_max_distance_quad_pulses,
@@ -862,9 +879,8 @@ private:
         );
         roboclaw_.debug_log_.showLog();
       } catch (...) {
-        roboclaw_.debug_log_.showLog();
         RCUTILS_LOG_ERROR(
-            "[RoboClaw::CmdDoBufferedM2M2DriveSpeedAccelDistance] Uncaught "
+            "[RoboClaw::CmdDoBufferedM1M2DriveSpeedAccelDistance] Uncaught "
             "exception !!!");
       }
     }
@@ -876,12 +892,12 @@ private:
     uint32_t m2_max_distance_quad_pulses_;
   };
 
-  friend class Cmd; // Make Cmd a friend class of RoboClaw
+  friend class Cmd;  // Make Cmd a friend class of RoboClaw
 
-protected:
+ protected:
   DebugLog debug_log_;
 
   static const char *motorNames_[];
   static std::mutex
-      buffered_command_mutex_; // Global mutex for buffered commands
+      buffered_command_mutex_;  // Global mutex for buffered commands
 };
