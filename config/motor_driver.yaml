@@ -9,7 +9,7 @@ motor_driver_node:
     accel_quad_pulses_per_second: 1000
 
     # The device name to be opened.
-    device_name: "/dev/ttyAMA1"
+    device_name: "/dev/ttyACM2"
     baud_rate: 38400
 
     # The assigned port for the device (as configured on the RoboClaw).
