@@ -527,7 +527,6 @@ class RoboClaw {
         roboclaw_.writeN2(true, 6, roboclaw_.portAddress_,
                           motor_ == kM1 ? kSETM1ENCODER : kSETM2ENCODER,
                           SetDWORDval(value_));
-        roboclaw_.debug_log_.showLog();
         return;
       } catch (...) {
         RCUTILS_LOG_ERROR(
@@ -557,7 +556,6 @@ class RoboClaw {
         responseCrc |= datum;
         if (responseCrc == crc) {
           roboclaw_.appendToReadLog(", RESULT: %04X", status_);
-          roboclaw_.debug_log_.showLog();
           return;
         } else {
           RCUTILS_LOG_ERROR(
@@ -585,7 +583,6 @@ class RoboClaw {
             ((float)roboclaw_.get2ByteCommandResult2(kGETLBATT)) / 10.0;
         voltage_ = result;
         roboclaw_.appendToReadLog(", RESULT: %f", result);
-        roboclaw_.debug_log_.showLog();
         return;
       } catch (...) {
         RCUTILS_LOG_ERROR(
@@ -607,7 +604,6 @@ class RoboClaw {
             ((float)roboclaw_.get2ByteCommandResult2(kGETMBATT)) / 10.0;
         voltage_ = result;
         roboclaw_.appendToReadLog(", RESULT: %f", result);
-        roboclaw_.debug_log_.showLog();
         return;
       } catch (...) {
         RCUTILS_LOG_ERROR(
@@ -671,7 +667,6 @@ class RoboClaw {
 
         roboclaw_.appendToReadLog(", RESULT value: %d, status: %d",
                                   encoder_.value, encoder_.status);
-        roboclaw_.debug_log_.showLog();
         return;
       } catch (...) {
         RCUTILS_LOG_ERROR("[RoboClaw::CmdReadEncoder] Uncaught exception !!!");
@@ -710,7 +705,6 @@ class RoboClaw {
         roboclaw_.appendToReadLog(
             ", RESULT: p: %3.4f, i: %3.4f, d: %3.4f, qpps: %d", result.p,
             result.i, result.d, result.qpps);
-        roboclaw_.debug_log_.showLog();
         if (responseCrc == crc) {
           pidq_ = result;
           return;
@@ -741,7 +735,6 @@ class RoboClaw {
         speed_ = roboclaw_.getVelocityResult(motor_ == kM1 ? kGETM1SPEED
                                                            : kGETM2SPEED);
         roboclaw_.appendToReadLog(", RESULT: %d", speed_);
-        roboclaw_.debug_log_.showLog();
         return;
       } catch (...) {
         RCUTILS_LOG_ERROR(
@@ -769,7 +762,6 @@ class RoboClaw {
         roboclaw_.appendToReadLog(
             ", RESULT m1 current: %3.4f, m2 current: %3.4f",
             motorCurrents_.m1Current, motorCurrents_.m2Current);
-        roboclaw_.debug_log_.showLog();
 
         if (motorCurrents_.m1Current > roboclaw_.maxM1Current_) {
           roboclaw_.motorAlarms_ |= kM1_OVER_CURRENT_ALARM;
@@ -840,7 +832,6 @@ class RoboClaw {
       }
 
       roboclaw_.appendToReadLog(", RESULT: %f", temperature_);
-      roboclaw_.debug_log_.showLog();
     }
 
     float &temperature_;
@@ -877,7 +868,6 @@ class RoboClaw {
                           SetDWORDval(m2_max_distance_quad_pulses_),
                           1 /* Cancel any previous command. */
         );
-        roboclaw_.debug_log_.showLog();
       } catch (...) {
         RCUTILS_LOG_ERROR(
             "[RoboClaw::CmdDoBufferedM1M2DriveSpeedAccelDistance] Uncaught "
