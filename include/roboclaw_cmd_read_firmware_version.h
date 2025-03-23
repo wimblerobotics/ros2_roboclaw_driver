@@ -10,7 +10,7 @@ class CmdReadFirmwareVersion : public Cmd {
 
   void send() override {
     roboclaw_.appendToWriteLog("ReadFirmwareVersion: WROTE: ");
-    roboclaw_.writeN2(false, 2, roboclaw_.portAddress_, RoboClaw::kGETVERSION);
+    roboclaw_.writeN2(false, 2, roboclaw_.portAddress_, RoboClaw::GETVERSION);
 
     try {
       uint16_t crc = 0;
@@ -19,7 +19,7 @@ class CmdReadFirmwareVersion : public Cmd {
       std::stringstream version;
 
       roboclaw_.updateCrc(crc, roboclaw_.portAddress_);
-      roboclaw_.updateCrc(crc, RoboClaw::kGETVERSION);
+      roboclaw_.updateCrc(crc, RoboClaw::GETVERSION);
       for (i = 0; i < 48; i++) {
         datum = roboclaw_.readByteWithTimeout2();
         roboclaw_.updateCrc(crc, datum);
@@ -61,5 +61,6 @@ class CmdReadFirmwareVersion : public Cmd {
         "[RoboClaw::CmdReadFirmwareVersion] RETRY COUNT EXCEEDED");
   }
 
+ private:
   std::string &version_;
 };

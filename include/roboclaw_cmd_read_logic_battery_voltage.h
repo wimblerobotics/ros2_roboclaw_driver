@@ -11,7 +11,7 @@ class CmdReadLogicBatteryVoltage : public Cmd {
     try {
       roboclaw_.appendToWriteLog("ReadLogicBatteryVoltage: WROTE: ");
       float result =
-          ((float)roboclaw_.get2ByteCommandResult2(RoboClaw::kGETLBATT)) / 10.0;
+          ((float)roboclaw_.get2ByteCommandResult2(RoboClaw::GETLBATT)) / 10.0;
       voltage_ = result;
       roboclaw_.appendToReadLog(", RESULT: %f", result);
       return;
@@ -21,5 +21,6 @@ class CmdReadLogicBatteryVoltage : public Cmd {
     }
   }
 
+ private:
   float &voltage_;
 };

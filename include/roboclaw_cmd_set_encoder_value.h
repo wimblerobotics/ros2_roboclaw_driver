@@ -13,8 +13,8 @@ class CmdSetEncoderValue : public Cmd {
         RoboClaw::motorNames_[motor_], value_);
     try {
       roboclaw_.writeN2(true, 6, roboclaw_.portAddress_,
-                        motor_ == RoboClaw::kM1 ? RoboClaw::kSETM1ENCODER
-                                                : RoboClaw::kSETM2ENCODER,
+                        motor_ == RoboClaw::kM1 ? RoboClaw::SETM1ENCODER
+                                                : RoboClaw::SETM2ENCODER,
                         SetDWORDval(value_));
       return;
     } catch (...) {
@@ -23,5 +23,6 @@ class CmdSetEncoderValue : public Cmd {
     }
   }
 
+ private:
   long value_;
 };

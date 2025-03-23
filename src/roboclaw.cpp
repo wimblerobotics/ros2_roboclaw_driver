@@ -273,8 +273,8 @@ uint32_t RoboClaw::getULongCont2(uint16_t &crc) {
   return result;
 }
 
-int32_t RoboClaw::getVelocity(WHICH_VELOCITY whichVelocity) {
-  if (whichVelocity == kGETM1SPEED) {
+int32_t RoboClaw::getVelocity(kMotor motor) {
+  if (motor == kM1) {
     return g_sensor_value_group_.m1_velocity;
   } else {
     return g_sensor_value_group_.m2_velocity;

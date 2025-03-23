@@ -11,9 +11,8 @@ class CmdReadEncoderSpeed : public Cmd {
     try {
       roboclaw_.appendToWriteLog("ReadEncoderSpeed: motor: %d (%s), WROTE: ",
                                  motor_, motor_ == RoboClaw::kM1 ? "M1" : "M2");
-      speed_ = roboclaw_.getVelocityResult(motor_ == RoboClaw::kM1
-                                               ? RoboClaw::kGETM1SPEED
-                                               : RoboClaw::kGETM2SPEED);
+      speed_ = roboclaw_.getVelocityResult(
+          motor_ == RoboClaw::kM1 ? kGETM1SPEED : kGETM2SPEED);
       roboclaw_.appendToReadLog(", RESULT: %d", speed_);
       return;
     } catch (...) {
@@ -22,6 +21,13 @@ class CmdReadEncoderSpeed : public Cmd {
           "!!!");
     }
   }
+
+ private:
+  // Referencing which velocity in the RoboClaw
+  typedef enum WHICH_VELOCITY {
+    kGETM1SPEED = 18,
+    kGETM2SPEED = 19,
+  } WHICH_VELOCITY;
 
   int32_t &speed_;
 };

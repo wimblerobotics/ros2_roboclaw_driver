@@ -10,9 +10,9 @@ class CmdReadStatus : public Cmd {
     try {
       uint16_t crc = 0;
       roboclaw_.updateCrc(crc, roboclaw_.portAddress_);
-      roboclaw_.updateCrc(crc, RoboClaw::kGETERROR);
+      roboclaw_.updateCrc(crc, RoboClaw::GETERROR);
       roboclaw_.appendToWriteLog("ReadStatus: WROTE: ");
-      roboclaw_.writeN2(false, 2, roboclaw_.portAddress_, RoboClaw::kGETERROR);
+      roboclaw_.writeN2(false, 2, roboclaw_.portAddress_, RoboClaw::GETERROR);
       status_ = (unsigned short)roboclaw_.getULongCont2(crc);
       uint16_t responseCrc = 0;
       uint16_t datum = roboclaw_.readByteWithTimeout2();
@@ -34,5 +34,6 @@ class CmdReadStatus : public Cmd {
     }
   };
 
+ private:
   uint16_t &status_;
 };

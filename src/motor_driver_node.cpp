@@ -66,9 +66,9 @@ int main(int argc, char *argv[]) {
           RoboClaw::singleton()->getM2EncoderStatus();
 
       roboClawStatus.m1_current_speed =
-          RoboClaw::singleton()->getVelocity(RoboClaw::kGETM1SPEED);
+          RoboClaw::singleton()->getVelocity(RoboClaw::kM1);
       roboClawStatus.m2_current_speed =
-          RoboClaw::singleton()->getVelocity(RoboClaw::kGETM2SPEED);
+          RoboClaw::singleton()->getVelocity(RoboClaw::kM2);
 
       roboClawStatus.error_string = RoboClaw::singleton()->getErrorString();
 

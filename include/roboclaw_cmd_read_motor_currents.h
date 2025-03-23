@@ -13,7 +13,7 @@ class CmdReadMotorCurrents : public Cmd {
       roboclaw_.appendToWriteLog("ReadMotorCurrents: WROTE: ");
 
       unsigned long currentPair =
-          roboclaw_.getUlongCommandResult2(RoboClaw::kGETCURRENTS);
+          roboclaw_.getUlongCommandResult2(RoboClaw::GETCURRENTS);
       motorCurrents_.m1Current = ((int16_t)(currentPair >> 16)) * 0.010;
       motorCurrents_.m2Current = ((int16_t)(currentPair & 0xFFFF)) * 0.010;
       roboclaw_.appendToReadLog(", RESULT m1 current: %3.4f, m2 current: %3.4f",
@@ -47,5 +47,6 @@ class CmdReadMotorCurrents : public Cmd {
     }
   }
 
+ private:
   RoboClaw::TMotorCurrents &motorCurrents_;
 };

@@ -14,13 +14,10 @@ class CmdReadEncoder : public Cmd {
 
       uint16_t crc = 0;
       roboclaw_.updateCrc(crc, roboclaw_.portAddress_);
-      roboclaw_.updateCrc(crc, motor_ == RoboClaw::kM1
-                                   ? RoboClaw::kGETM1ENC
-                                   : RoboClaw::RoboClaw::kGETM2ENC);
+      roboclaw_.updateCrc(crc, motor_ == RoboClaw::kM1 ? kGETM1ENC : kGETM2ENC);
 
-      roboclaw_.writeN2(
-          false, 2, roboclaw_.portAddress_,
-          motor_ == RoboClaw::kM1 ? RoboClaw::kGETM1ENC : RoboClaw::kGETM2ENC);
+      roboclaw_.writeN2(false, 2, roboclaw_.portAddress_,
+                        motor_ == RoboClaw::kM1 ? kGETM1ENC : kGETM2ENC);
 
       uint8_t datum = roboclaw_.readByteWithTimeout2();
       encoder_.value |= datum << 24;
@@ -64,6 +61,14 @@ class CmdReadEncoder : public Cmd {
       RCUTILS_LOG_ERROR("[RoboClaw::CmdReadEncoder] Uncaught exception !!!");
     }
   }
+
+ private:
+  // Referencing which encoder in the RoboClaw
+  typedef enum WHICH_ENC {
+    kGETM1ENC = 16,
+    kGETM2ENC = 17,
+
+  } WHICH_ENC;
 
   RoboClaw::EncodeResult &encoder_;
 };

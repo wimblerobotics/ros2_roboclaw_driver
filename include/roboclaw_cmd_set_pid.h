@@ -18,10 +18,11 @@ class CmdSetPid : public Cmd {
     uint32_t kd = int(d_ * 65536.0);
     roboclaw_.writeN2(
         true, 18, roboclaw_.portAddress_,
-        motor_ == RoboClaw::kM1 ? RoboClaw::kSETM1PID : RoboClaw::kSETM2PID,
+        motor_ == RoboClaw::kM1 ? RoboClaw::SETM1PID : RoboClaw::SETM2PID,
         SetDWORDval(kd), SetDWORDval(kp), SetDWORDval(ki), SetDWORDval(qpps_));
   }
 
+ private:
   float p_;
   float i_;
   float d_;

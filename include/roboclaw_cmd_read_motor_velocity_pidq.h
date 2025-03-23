@@ -15,12 +15,10 @@ class CmdReadMotorVelocityPIDQ : public Cmd {
       RoboClaw::TPIDQ result;
       uint16_t crc = 0;
       roboclaw_.updateCrc(crc, roboclaw_.portAddress_);
-      roboclaw_.updateCrc(crc, motor_ == RoboClaw::kM1 ? RoboClaw::kGETM1PID
-                                                       : RoboClaw::kGETM2PID);
+      roboclaw_.updateCrc(crc, motor_ == RoboClaw::kM1 ? kGETM1PID : kGETM2PID);
 
-      roboclaw_.writeN2(
-          false, 2, roboclaw_.portAddress_,
-          motor_ == RoboClaw::kM1 ? RoboClaw::kGETM1PID : RoboClaw::kGETM2PID);
+      roboclaw_.writeN2(false, 2, roboclaw_.portAddress_,
+                        motor_ == RoboClaw::kM1 ? kGETM1PID : kGETM2PID);
       result.p = (int32_t)roboclaw_.getULongCont2(crc) / 65536.0;
       result.i = (int32_t)roboclaw_.getULongCont2(crc) / 65536.0;
       result.d = (int32_t)roboclaw_.getULongCont2(crc) / 65536.0;
@@ -49,6 +47,13 @@ class CmdReadMotorVelocityPIDQ : public Cmd {
           "[RoboClaw::CmdReadMotorVelocityPIDQ] Uncaught exception !!!");
     }
   }
+
+ private:
+  // Referencing which motor in the RoboClaw
+  typedef enum WHICH_MOTOR {
+    kGETM1PID = 55,
+    kGETM2PID = 56,
+  } WHICH_MOTOR;
 
   RoboClaw::TPIDQ &pidq_;
 };

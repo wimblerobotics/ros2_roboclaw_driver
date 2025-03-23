@@ -25,7 +25,7 @@ class CmdDoBufferedM1M2DriveSpeedAccelDistance : public Cmd {
           m1_max_distance_quad_pulses_, m2_speed_quad_pulses_per_second_,
           m2_max_distance_quad_pulses_);
       roboclaw_.writeN2(true, 23, roboclaw_.portAddress_,
-                        RoboClaw::kMIXEDSPEEDACCELDIST,
+                        RoboClaw::MIXEDSPEEDACCELDIST,
                         SetDWORDval(accel_quad_pulses_per_second_),
                         SetDWORDval(m1_speed_quad_pulses_per_second_),
                         SetDWORDval(m1_max_distance_quad_pulses_),
@@ -40,6 +40,7 @@ class CmdDoBufferedM1M2DriveSpeedAccelDistance : public Cmd {
     }
   }
 
+ private:
   uint32_t accel_quad_pulses_per_second_;
   int32_t m1_speed_quad_pulses_per_second_;
   uint32_t m1_max_distance_quad_pulses_;

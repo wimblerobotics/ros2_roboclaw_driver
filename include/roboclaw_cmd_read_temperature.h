@@ -12,9 +12,9 @@ class CmdReadTemperature : public Cmd {
       roboclaw_.appendToWriteLog("ReadTemperature: WROTE: ");
       uint16_t crc = 0;
       roboclaw_.updateCrc(crc, roboclaw_.portAddress_);
-      roboclaw_.updateCrc(crc, RoboClaw::kGETTEMPERATURE);
+      roboclaw_.updateCrc(crc, RoboClaw::GETTEMPERATURE);
       roboclaw_.writeN2(false, 2, roboclaw_.portAddress_,
-                        RoboClaw::kGETTEMPERATURE);
+                        RoboClaw::GETTEMPERATURE);
       uint16_t result = 0;
       uint8_t datum = roboclaw_.readByteWithTimeout2();
       roboclaw_.updateCrc(crc, datum);
@@ -45,5 +45,6 @@ class CmdReadTemperature : public Cmd {
     roboclaw_.appendToReadLog(", RESULT: %f", temperature_);
   }
 
+ private:
   float &temperature_;
 };
