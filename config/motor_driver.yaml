@@ -55,3 +55,7 @@ motor_driver_node:
 
     # Topic name to be used to publish the RoboClaw status messages.
     roboclaw_status_topic: "roboclaw_status"
+
+    # Debugging control.
+    do_debug: false # True => Log RoboClaw commands and responses.
+    do_low_level_debug: false # True => Log low-level serial and RoboClaw data.

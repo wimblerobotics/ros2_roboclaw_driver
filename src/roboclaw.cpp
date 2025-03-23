@@ -36,16 +36,18 @@ std::mutex RoboClaw::buffered_command_mutex_;
 
 RoboClaw::RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
                    float m2MaxCurrent, std::string device_name,
-                   uint8_t device_port, uint32_t baud_rate)
-    : doDebug_(true),
-      doLowLevelDebug_(true),
+                   uint8_t device_port, uint32_t baud_rate, bool(do_debug),
+                   bool do_low_level_debug)
+    : do_debug_(do_debug),
+      do_low_level_debug_(do_low_level_debug),
       baud_rate_(baud_rate),
       device_port_(device_port),
       maxCommandRetries_(3),
       maxM1Current_(m1MaxCurrent),
       maxM2Current_(m2MaxCurrent),
       device_name_(device_name),
-      portAddress_(128) {
+      portAddress_(128),
+      debug_log_(this) {
   openPort();
   RCUTILS_LOG_INFO("[RoboClaw::RoboClaw] RoboClaw software version: %s",
                    getVersion().c_str());
@@ -514,18 +516,10 @@ uint8_t RoboClaw::readByteWithTimeout2() {
           "[RoboClaw::readByteWithTimeout2 Failed to read 1 byte");
     }
 
-    static const bool kDEBUG_READBYTE = true;
-    if (doLowLevelDebug_) {
+    if (do_debug_ || do_low_level_debug_) {
       appendToReadLog("%02X ", buffer[0]);
-    }
-    if (kDEBUG_READBYTE) {
-      if ((buffer[0] < 0x21) || (buffer[0] > 0x7F)) {
-        // RCUTILS_LOG_INFO("read ..> char: ?? 0x%02X <--", buffer[0]);
-        // fprintf(stderr, "..> char: ?? 0x%02X <--", buffer[0]);
-      } else {
-        // RCUTILS_LOG_INFO("read ..> char: %c  0x%02X <--", buffer[0],
-        // buffer[0]); fprintf(stderr, "..> char: %c  0x%02X <--", buffer[0],
-        // buffer[0]);
+      if (do_low_level_debug_) {
+        RCUTILS_LOG_INFO("Read: %02X", buffer[0]);
       }
     }
 
@@ -658,11 +652,17 @@ void RoboClaw::writeByte2(uint8_t byte) {
     result = ::write(device_port_, &byte, 1);
     // RCUTILS_LOG_INFO("--> wrote: 0x%02X, result: %ld", byte, result);  //
     // ####
-    if (doLowLevelDebug_) {
+    if (do_debug_ || do_low_level_debug_) {
       if (result == 1) {
         appendToWriteLog("%02X ", byte);
+        if (do_low_level_debug_) {
+          RCUTILS_LOG_INFO("Write: %02X", byte);
+        }
       } else {
-        appendToWriteLog(">%02X< ", byte);
+        appendToWriteLog("~%02X ", byte);
+        if (do_low_level_debug_) {
+          RCUTILS_LOG_ERROR("Write fail: %02X", byte);
+        }
       }
     }
 

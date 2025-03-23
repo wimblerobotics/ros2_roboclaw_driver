@@ -28,7 +28,10 @@ class MotorDriver : public rclcpp::Node {
   uint32_t baud_rate_;
   std::string device_name_;
   uint8_t device_port_;
-  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_publisher_;
+  bool do_debug_;
+  bool do_low_level_debug_;
+  rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr
+      joint_state_publisher_;
   float m1_p_;
   float m1_i_;
   float m1_d_;

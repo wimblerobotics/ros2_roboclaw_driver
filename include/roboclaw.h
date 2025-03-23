@@ -12,19 +12,6 @@
 #include <string>
 
 #include "ros2_roboclaw_driver/srv/reset_encoders.hpp"
-// #include "roboclaw_cmd.h"
-// #include "roboclaw_cmd_do_buffered_m1m2_drive_speed_accel_distance.h"
-// #include "roboclaw_cmd_read_encoder.h"
-// #include "roboclaw_cmd_read_encoder_speed.h"
-// #include "roboclaw_cmd_read_firmware_version.h"
-// #include "roboclaw_cmd_read_logic_battery_voltage.h"
-// #include "roboclaw_cmd_read_main_battery_voltage.h"
-// #include "roboclaw_cmd_read_motor_currents.h"
-// #include "roboclaw_cmd_read_motor_velocity_pidq.h"
-// #include "roboclaw_cmd_read_status.h"
-// #include "roboclaw_cmd_read_temperature.h"
-// #include "roboclaw_cmd_set_encoder_value.h"
-// #include "roboclaw_cmd_set_pid.h"
 
 /* There are possibly several clients that want to read sensor data,
    such as encoder values, motor speeds, etc. Each time an actual read
@@ -107,7 +94,8 @@ class RoboClaw {
   // Constructor.
   RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
            float m2MaxCurrent, std::string device_name, uint8_t device_port,
-           uint32_t baud_rate);
+           uint32_t baud_rate, bool do_debug = false,
+           bool do_low_level_debug = false);
 
   ~RoboClaw();
 
@@ -194,10 +182,10 @@ class RoboClaw {
 
  private:
   // True => print debug messages.
-  bool doDebug_;
+  bool do_debug_;
 
   // True => print byte values as they are read and written.
-  bool doLowLevelDebug_;
+  bool do_low_level_debug_;
 
   // Get RoboClaw error status as a string.
   std::string getErrorString(uint16_t errorStatus);
@@ -352,45 +340,52 @@ class RoboClaw {
 
   static RoboClaw *g_singleton;
 
-  char command_log_[256];
-  char response_log_[256];
-
   class DebugLog {
    public:
-    DebugLog() : next_read_log_index_(0), next_write_log_index_(0) {}
+    DebugLog(RoboClaw *roboclaw)
+        : roboclaw_(roboclaw),
+          next_read_log_index_(0),
+          next_write_log_index_(0) {}
     ~DebugLog() {}
 
     void appendToReadLog(const char *format, va_list args) {
-      int written =
-          vsnprintf(&read_log_[next_read_log_index_],
-                    sizeof(read_log_) - next_read_log_index_, format, args);
-      if (written > 0) {
-        next_read_log_index_ += written;
+      if (roboclaw_->do_debug_) {
+        int written =
+            vsnprintf(&read_log_[next_read_log_index_],
+                      sizeof(read_log_) - next_read_log_index_, format, args);
+        if (written > 0) {
+          next_read_log_index_ += written;
+        }
       }
     }
 
     void appendToWriteLog(const char *format, va_list args) {
-      int written =
-          vsnprintf(&write_log_[next_write_log_index_],
-                    sizeof(write_log_) - next_write_log_index_, format, args);
-      if (written > 0) {
-        next_write_log_index_ += written;
-      }
-      if ((next_write_log_index_ > 0) && (write_log_[0] == '8')) {
-        RCUTILS_LOG_INFO("Whoops!");
+      if (roboclaw_->do_debug_) {
+        int written =
+            vsnprintf(&write_log_[next_write_log_index_],
+                      sizeof(write_log_) - next_write_log_index_, format, args);
+        if (written > 0) {
+          next_write_log_index_ += written;
+        }
+        if ((next_write_log_index_ > 0) && (write_log_[0] == '8')) {
+          RCUTILS_LOG_INFO("Whoops!");
+        }
       }
     }
 
     void showLog() {
-      RCUTILS_LOG_INFO("[RoboClaw::DebugLog] %s, READ: %s", write_log_,
-                       read_log_);
-      read_log_[0] = '\0';
-      next_read_log_index_ = 0;
-      write_log_[0] = '\0';
-      next_write_log_index_ = 0;
+      if (roboclaw_->do_debug_) {
+        RCUTILS_LOG_INFO("[RoboClaw::DebugLog] %s, READ: %s", write_log_,
+                         read_log_);
+        read_log_[0] = '\0';
+        next_read_log_index_ = 0;
+        write_log_[0] = '\0';
+        next_write_log_index_ = 0;
+      }
     }
 
     // private:
+    RoboClaw *roboclaw_;  // Pointer to the RoboClaw instance (if needed)
     char read_log_[256];
     char write_log_[256];
     uint16_t next_read_log_index_;
