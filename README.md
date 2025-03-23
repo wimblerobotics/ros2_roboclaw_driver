@@ -2,7 +2,7 @@
 A driver for the RoboClaw family of devices for use under ROS2. 
 This driver is hard coded to use a pair of motors, presumed to be in a
 differential drive configuration. In various places, they are refered to
-as ***m1*** and ***m2***
+as ***m1*** and ***m2***. It is expected that ***m1*** is the left motor and ***m2*** is the right motor.
 
 This code does not publish odometry information. Wheel odometry is often so
 wildly wrong that it is expected that a robot builder will derive it in some way

@@ -56,6 +56,9 @@ motor_driver_node:
     # Topic name to be used to publish the RoboClaw status messages.
     roboclaw_status_topic: "roboclaw_status"
 
+    # How often, in Hz, to sense the various RoboClaw internal values.
+    sensor_rate_hz: 20.0
+
     # Debugging control.
     do_debug: false # True => Log RoboClaw commands and responses.
     do_low_level_debug: false # True => Log low-level serial and RoboClaw data.
