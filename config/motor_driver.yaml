@@ -39,7 +39,7 @@ motor_driver_node:
     # command in this number of seconds, stop the motors.
     max_seconds_uncommanded_travel: 0.25
 
-    publish_joint_states: true
+    publish_joint_states: false
     publish_odom: true
 
     # Based upon your particular motor gearing and encoders.
