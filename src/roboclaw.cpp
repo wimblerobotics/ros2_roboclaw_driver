@@ -460,27 +460,6 @@ void RoboClaw::openPort() {
         "[RoboClaw::openPort] Unable to set terminal options "
         "(tcsetattr)");
   }
-
-  // // c_cflag contains a few important things- CLOCAL and CREAD, to prevent
-  // //   this program from "owning" the port and to enable receipt of data.
-  // //   Also, it holds the settings for number of data bits, parity, stop
-  // bits,
-  // //   and hardware flow control.
-  // portOptions.c_cflag |=
-  //     HUPCL;  // Enable lower control lines on close - hang up.
-
-  // portOptions.c_iflag &= ~(IGNPAR);  // Disable parity checks.
-  //                                             // portOptions.c_iflag |=
-  //                                             IGNPAR;
-  // portOptions.c_iflag &= ~INPCK;              // Disable parity checking.
-
-  // portOptions.c_lflag &= ~IEXTEN;  // Disable input processing
-  // portOptions.c_lflag &= ~NOFLSH;  // Disable flushing on SIGINT.
-
-  // portOptions.c_oflag &= ~OFILL;            // Disable fill characters.
-  // portOptions.c_oflag &= ~(ONLCR | OCRNL);  // Disable translating NL <-> CR.
-
-  // portOptions.c_cc[VKILL] = 8;
 }
 
 uint8_t RoboClaw::readByteWithTimeout2() {
@@ -684,9 +663,6 @@ void RoboClaw::writeN2(bool sendCRC, uint8_t cnt, ...) {
   va_list marker;
   va_start(marker, cnt);
 
-  // int origFlags = fcntl(device_port_, F_GETFL, 0);
-  // fcntl(device_port_, F_SETFL, origFlags & ~O_NONBLOCK);
-
   for (uint8_t i = 0; i < cnt; i++) {
     uint8_t byte = va_arg(marker, int);
     updateCrc(crc, byte);
@@ -711,8 +687,6 @@ void RoboClaw::writeN2(bool sendCRC, uint8_t cnt, ...) {
       throw new TRoboClawException(msg);
     }
   }
-
-  // fcntl(device_port_, F_SETFL, origFlags);
 }
 
 RoboClaw *RoboClaw::singleton() { return g_singleton; }

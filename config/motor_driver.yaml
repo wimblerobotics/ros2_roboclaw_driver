@@ -2,20 +2,29 @@
 # drive motors, 'm1' and 'm2'. See the article:
 # https://resources.basicmicro.com/auto-tuning-with-motion-studio/
 # for a description of how to derive the p, i, d and qpps values.
+#
+# This configuration file is set up and an example for use with
+# A Raspberry PI 5 using a UART to connect to a RoboClaw motor driver.
+# See the README.md file for more information on how to set up
+# the RoboClaw and the Raspberry PI and how to set values in this file.
 
 motor_driver_node:
   ros__parameters:
     # Incremental acceleration to use in quadrature pulses per second.
     accel_quad_pulses_per_second: 1000
 
-    # The device name to be opened.
-    device_name: "/dev/ttyACM2"
-    baud_rate: 38400
+    # The device name to be opened. Change this to your actual device you are using.
+    # Both USB and UART devices are supported. The device name is the
+    # name of the device as it appears in the /dev directory.
+    device_name: "/dev/ttyAMA0"
+    baud_rate: 38400 # This does not apply when using USB.
 
     # The assigned port for the device (as configured on the RoboClaw).
     device_port: 128
 
     # The P, I, D and maximum quadrature pulses per second for both motors.
+    # These values are for my robot. Replace them with your own values.
+    # Use can use Basic Micro's Motion Studio to determine the values.
     m1_p: 7.26239
     m1_i: 1.36838
     m1_d: 0.0
