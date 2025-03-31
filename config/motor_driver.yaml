@@ -66,6 +66,8 @@ motor_driver_node:
     roboclaw_status_topic: "roboclaw_status"
 
     # How often, in Hz, to sense the various RoboClaw internal values.
+    # This is the rate that Joint State, Odomentry and
+    # RoboClaw status messages are published.
     sensor_rate_hz: 20.0
 
     # Debugging control.

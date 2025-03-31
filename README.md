@@ -5,12 +5,12 @@ differential drive configuration. In various places, they are refered to
 as ***m1*** and ***m2***. It is expected that ***m1*** is the left motor and ***m2*** is the right motor.
 
 # Prerequisites
-- [ROS 2, Jazzy distribution](https://docs.ros.org/en/jazzy/Installation.html)
+- [ROS2, Jazzy distribution](https://docs.ros.org/en/jazzy/Installation.html)
 - git
   
 # Build the Package From Source
 
-It is recommented to create a new overlay workspace on top of your curreent ROS 2 installation, although you could just clone this into the src directory of an existing workspace. To create an overlay workspace:
+It is recommented to create a new overlay workspace on top of your curreent ROS2 installation, although you could just clone this git repository into the src directory of an existing workspace. To create an overlay workspace:
 
 ```
 mkdir -p ~/ros2_roboclaw_driver/src
@@ -21,7 +21,7 @@ rosdep install --from-paths src --ignore-src -r -y
 colcon build --symlink-install
 ```
 
-As with any ROS 2 workspace overlay, you need to make the overlay known to the system. Execute the following and possibly add the command to your *~/.bashrc* file so you won't forget to enable the overlay.
+As with any ROS2 workspace overlay, you need to make the overlay known to the system. Execute the following to enable the overlay and possibly add the command to your *~/.bashrc* file so you won't forget to enable the overlay.
 
 ```
 source ~/ros2_roboclaw_driver/install/local_setup.bash
@@ -29,7 +29,7 @@ source ~/ros2_roboclaw_driver/install/local_setup.bash
 
 ## Notes for build
 - The name ***~/ros2_roboclaw_driver*** is just an example. Create whatever workspace name you want.
-- By default, a debug version of the code is created. If you don't want this, in the *CmakeLists.txt* file, remove the line
+- By default, a compiled version of the code with debugging symbols is created. If you don't want this, in the *CmakeLists.txt* file, remove the line
 ```
 add_compile_options(-g)
 ```
@@ -37,19 +37,17 @@ add_compile_options(-g)
 
 # ROS topics
 
-If the **publish_joint_states** configuration parameter is set to **true** in the configuration yaml file, the driver will publish a message on the topic **/joint_states**. The message is a standard ROS 2 message of type **sensor_msgs/JointState**.
+If the **publish_joint_states** configuration parameter is set to **true** in the configuration yaml file, the driver will publish a message on the topic **/joint_states**. The message is a standard ROS2 message of type **sensor_msgs/JointState**.
 
-If the **publish_odom** configuration parameter is set to **true** in the configuration yaml file, the driver will publish a message on the topic **/odom**. The message is a standard ROS 2 message of type **nav_msgs/Odometry**.
+If the **publish_odom** configuration parameter is set to **true** in the configuration yaml file, the driver will publish a message on the topic **/odom**. The message is a standard ROS2 message of type **nav_msgs/Odometry**.
 
 Both of these messages are published at 20 times per second by default but you can specify a different rate in the configuration yaml file by changing the **sensor_update_rate** parameter.
 
 You must specify in the configuration yaml file a topic name to be used
-to publish a status message for the RoboClaw device, which are mostly values pulled from various registers on the RoboClaw device. In the sample **motor_driver.yaml** file, the topic name is set to be **roboclaw_status_topic**.
+to publish a status message for the RoboClaw device, which are mostly values pulled from various registers on the RoboClaw device. In the sample **motor_driver.yaml** file, the topic name is set to be **roboclaw_status**.
 By default, the topic name is set to **roboclaw_status** so the topic will be actually published, by default, to the **/roboclaw_status** topic.
-The driver will publish a message on this topic. The message is a custom ROS 2 message of type **ros2_roboclaw_driver/RoboClawStatus**.
+The message is a custom ROS2 message of type **ros2_roboclaw_driver/RoboClawStatus** and the specification of that message is
 
-The message is (currently) hard-coded to be published at 20 times per second.
-The specification of that message is
 ```
 float32  m1_p
 float32  m1_i
@@ -75,7 +73,7 @@ float32  temperature
 string  error_string
 ```
 
-**NOTE** The current error interpretation may not be in agreement with the
+**NOTE** **error_string** is an English language interpretation of the status bytes of the RoboClaw. The current error interpretation may not be in agreement with the
 latest RoboClaw firmware.
 
 The error_string value is an interpretation of the RoboClaw unit status and
@@ -183,7 +181,7 @@ motor_driver_node:
     quad_pulses_per_meter: 1566
     quad_pulses_per_revolution: 979.62
 
-    # Based upon y our particular robot model.
+    # Based upon your particular robot model.
     # The wheel separation and radius, in meters.
     wheel_radius: 0.10169
     wheel_separation: 0.345
@@ -212,16 +210,69 @@ Do not expect the encoder
 values to be the same between node instantiations for this driver package.
 
 # Overview of the Code
+
+# Code Crganization
 The code is organized into these directories:
 - **config**: This directory contains the configuration file for the driver. It is referenced by the launch file.
 - **include**: This directory contains the header files for the driver.
 - **launch**: This directory contains the launch file for the driver.
 - **msg**: This directory contains the custom message files for the driver.
 - **src**: This directory contains the source code for the driver.
-    - motor_driver_node.cpp: This is the main source file for the driver. This contains the main function and instantiates the MotorDriver class and then periodically samples the status of the RoboClaw device and publishes that status to a topic.
-    - motor_driver.cpp: This is the main class for the driver. It contains the logic for communicating with the RoboClaw device and processing the commands from the ROS2 navigation stack. It deals with errors and retries. It publishes the **odom** and **joint_states** messages if configured to do so.
-    - roboclaw_driver.cpp: This does the low-level communication with the RoboClaw. Not all RoboClaw commands are implemented. Only the ones needed for this driver are implemented.
+    - **motor_driver_node.cpp**: This is the main source file for the driver. This contains the **main** function and instantiates the **MotorDriver** class and then periodically samples the status of the RoboClaw device and publishes that status to a topic.
+    - **motor_driver.cpp**: This is the main class for the driver. It contains the logic for communicating with the RoboClaw device and processing the commands from the ROS2 navigation stack. It deals with errors and retries. It publishes the **odom** and **joint_states** messages if configured to do so.
+    - **roboclaw_driver.cpp**: This does the low-level communication with the RoboClaw. Not all RoboClaw commands are implemented, only the ones needed for this driver.
 - **srv**: This directory contains the service files for the driver. Note that the service files are not used in the current version of the driver. They are provided for future use.
+
+## Motor Control Safety and Power Shaping
+
+There are a few safety features built into this driver. First, the angular and linear velocities are limited to a maximum value. The maximum values are set in the configuration file. The driver will clip any values exceeding these limits. The limits are governed by the **max_angular_velocity** and **max_linear_velocity** configuration values.
+You should be using limits in, e.g., the ROS2 navigation stack configuration file, but this is a second line of defense.
+
+The driver will also stop the motors if no new command is received within a certain time period. This is set in the configuration file as **max_seconds_uncommanded_travel**. The default value is 0.25 seconds. This means that if no new command is received within 0.25 seconds, the motors will be stopped. This is a safety feature to prevent the robot from running away if the navigation stack fails to send commands.
+
+**NOTE** The following is a note for a future feature, not implemented yet.
+```
+The driver will also stop the motors if the current exceeds a certain value. This is set in the configuration file as **m1_max_current** and **m2_max_current**. The default value is 6.0 amps. This means that if the current exceeds 6.0 amps, the motors will be stopped. This is a safety feature to prevent the motors from overheating.
+```
+
+The driver also shapes the power provided to the motors. The velocities are ramped up and ramped down.
+This prevents the motors from being commanded to go from full speed in one direction to full speed in the other direction, which can sometimes be hard on the motor windings. The acceleration ramp is controlled by the **accel_quad_pulses_per_second** value in the configuration file.
+
+## Joint States and Odometry Publication
+
+The driver will publish the joint states and odometry messages if configured to do so. The joint states are published on the **/joint_states** topic and the odometry is published on the **/odom** topic.
+Whether or not the driver publishes these messages is controlled by the **publish_joint_states** and **publish_odom** parameters in the configuration file. The default values are **false** and **true**, respectively.
+
+The joint states and odometry are published at a rate of 20 Hz by default and is controlled by the **sensor_update_rate** parameter in the configuration file.
+
+## Error Handling With the RoboClaw
+
+The driver will handle errors with the RoboClaw device, including unexpected or missing responses, failed communication, and timeouts. If an error occurs, the driver will attempt to recover from the error. The driver will retry the command a certain number of times before giving up. The number of retries is controlled by the **max_retries** parameter in the configuration file. The default value is 3.
+
+If the low-leve I/O fails, this driver code will attempt to close the device and reopen it.
+
+## Kinds of Devices that Can Be Used
+
+The driver can be used with either a USB device or a UART device. The device name is the name of the device as it appears in the **/dev** directory. For example, if you are using a USB device, the device name might be **/dev/ttyUSB0**. If you are using a UART device, the device name might be **/dev/ttyAMA0** or **/dev/ttyAMA1**.
+If using a USB device, the **baud_rate** parameter in the configuration file is ignored. The driver will use the default baud rate for the virtual USB device.
+If using a UART device, the **baud_rate** parameter in the configuration file is used to set the baud rate for the UART device. The default value is 38400. This value must match the baud rate set on the RoboClaw device.
+
+Various serial port options are set to achieve what, for me, has been fairly reliable communication.
+
+## Wheel Encoder Overflow and Underflow
+
+This code does not deal with wheel encoder overflow and underflow. On startup, the driver will reset the encoder values to zero. This is done to minimize the likelihood of overflow and underflow from causing problems with the driver. 
+For my robot, which generates 1566 wheel encoder quadrature pulses per revolutions, overflow will occur after about 1,370,000 revolutions of the wheel, which with my 4 inch wheels about over 250 miles of travel.
+Even allowing a velocity of a meter per second, it should take nearly 120 hours of traveling in a straight line to overflow the encoder values.
+
+
+## Debugging Output
+
+The driver will publish debugging output to the console if configured to do so. The debugging output is controlled by the **do_debug** and **do_low_level_debug** parameters in the configuration file. The default values are **false** and **false**, respectively.
+
+Enabling the **do_debug** parameter will cause the driver to publish debugging output to the console, usually on a per-command basis, showing the  commands sent to the RoboClaw device and the responses received from the RoboClaw device.
+
+Enabling the **do_low_level_debug** parameter will cause the driver to publish low-level debugging output to the console, usually on a byte by byte basis, showing the raw data sent to and received from the RoboClaw device. This is useful for debugging low-level communication issues.
 
 # Using UARTs on the Raspberry Pi 5
 
@@ -296,7 +347,7 @@ you should see the list of group names that you are a member of. Obviously, **di
 
 Before connecting the Raspberry Pi to the **Roboclaw** device itself, verify that the Raspberry Pi UART is actually functional. Put a jumper between the transmit and receive pins for the UART port  you enabled. E.g., if you enabled **UART0**, put a jumper between **GPIO14** and **GPIO15**. If you enabled **UART1**, put a jumper beween **GPIO0** and **GPIO1**.
 
-Now, simply use **minicom** (or your favorite terminal emulator), which should be installed by default for the **ubuntu** distribution, to test the UART. Issue the command:
+Now, simply use **minicom** (or your favorite terminal emulator) to test the UART. Issue the command:
 
 ```bash
 minicom -D /dev/ttyAMA0
@@ -304,7 +355,7 @@ minicom -D /dev/ttyAMA0
 
 if you enabled **UART0**. For **UART1**, the device is **/dev/ttyAMA1**.
 
-When **minicom** comes up, you should be able to type some characters on the keyboard and see them echoed in the screen. To exit **minicom**, type **control-A** followed by **Q** and then hit return when it asks if you want to "**Leave without reset?**". You can explore **minicom** if you want to play with attributes of the UART port, such as setting a different baud rate, but I'm not covering that here.
+When **minicom** comes up, you should be able to type some characters on the keyboard and see them echoed in the screen. To exit **minicom**, type **control-A** followed by **Q** and then hit **Enter** when it asks if you want to "**Leave without reset?**". You can explore **minicom** if you want to play with attributes of the UART port, such as setting a different baud rate, but I'm not covering that here.
 
 ## Wiring the Raspberry Pi to the RoboClaw
 
@@ -327,6 +378,3 @@ motor_driver_node:
     device_name: "/dev/ttyAMA1"
 
 ```
-
-**NOTE** **NOTE** **NOTE**
-At present, the code is hard-coded to use 38400 baud communication between the Raspberry Pi and the **RoboClaw**. Make sure you have configured the **RoboClaw** to use this baud rate and also to use Packet Serial communication mode.
