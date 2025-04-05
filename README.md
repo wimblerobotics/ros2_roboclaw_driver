@@ -10,7 +10,7 @@ as ***m1*** and ***m2***. It is expected that ***m1*** is the left motor and ***
   
 # Build the Package From Source
 
-It is recommented to create a new overlay workspace on top of your curreent ROS2 installation, although you could just clone this git repository into the src directory of an existing workspace. To create an overlay workspace:
+It is recommented to create a new overlay workspace on top of your current ROS2 installation, although you could just clone this git repository into the src directory of an existing workspace. To create an overlay workspace:
 
 ```
 mkdir -p ~/ros2_roboclaw_driver/src
