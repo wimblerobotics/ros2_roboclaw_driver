@@ -43,9 +43,8 @@ If the **publish_odom** configuration parameter is set to **true** in the config
 
 Both of these messages are published at 20 times per second by default but you can specify a different rate in the configuration yaml file by changing the **sensor_update_rate** parameter.
 
-You must specify in the configuration yaml file a topic name to be used
+You can specify in the configuration yaml file a topic name to be used
 to publish a status message for the RoboClaw device, which are mostly values pulled from various registers on the RoboClaw device. In the sample **motor_driver.yaml** file, the topic name is set to be **roboclaw_status**.
-By default, the topic name is set to **roboclaw_status** so the topic will be actually published, by default, to the **/roboclaw_status** topic.
 The message is a custom ROS2 message of type **ros2_roboclaw_driver/RoboClawStatus** and the specification of that message is
 
 ```
