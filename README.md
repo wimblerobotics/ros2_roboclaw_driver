@@ -261,7 +261,7 @@ Various serial port options are set to achieve what, for me, has been fairly rel
 ## Wheel Encoder Overflow and Underflow
 
 This code does not deal with wheel encoder overflow and underflow. On startup, the driver will reset the encoder values to zero. This is done to minimize the likelihood of overflow and underflow from causing problems with the driver. 
-For my robot, which generates 1566 wheel encoder quadrature pulses per revolutions, overflow will occur after about 1,370,000 revolutions of the wheel, which with my 4 inch wheels about over 250 miles of travel.
+For my robot, which generates 1566 wheel encoder quadrature pulses per revolutions, overflow will occur after about 1,370,000 revolutions of the wheel, which with my 4 inch wheels is over 250 miles of travel.
 Even allowing a velocity of a meter per second, it should take nearly 120 hours of traveling in a straight line to overflow the encoder values.
 
 
