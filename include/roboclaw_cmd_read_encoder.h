@@ -19,6 +19,8 @@ class CmdReadEncoder : public Cmd {
       roboclaw_.writeN2(false, 2, roboclaw_.portAddress_,
                         motor_ == RoboClaw::kM1 ? kGETM1ENC : kGETM2ENC);
 
+      encoder_.value = 0;
+      encoder_.status = 0;
       uint8_t datum = roboclaw_.readByteWithTimeout2();
       encoder_.value |= datum << 24;
       roboclaw_.updateCrc(crc, datum);
