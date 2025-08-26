@@ -291,7 +291,7 @@ int32_t RoboClaw::getVelocityResult(uint8_t command) {
   return 0;
 }
 
-int32_t RoboClaw::getM1Encoder() {
+uint32_t RoboClaw::getM1Encoder() {
   return g_sensor_value_group_.m1_encoder_command_result.value;
 }
 
@@ -299,7 +299,7 @@ int8_t RoboClaw::getM1EncoderStatus() {
   return g_sensor_value_group_.m1_encoder_command_result.status;
 }
 
-int32_t RoboClaw::getM2Encoder() {
+uint32_t RoboClaw::getM2Encoder() {
   return g_sensor_value_group_.m2_encoder_command_result.value;
 }
 
