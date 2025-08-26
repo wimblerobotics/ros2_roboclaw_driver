@@ -79,7 +79,7 @@ void RoboClaw::doMixedSpeedAccelDist(uint32_t accel_quad_pulses_per_second,
   command.execute();
 }
 
-uint16_t RoboClaw::getErrorStatus() {
+uint32_t RoboClaw::getErrorStatus() {
   return g_sensor_value_group_.error_status;
 }
 
@@ -87,83 +87,49 @@ std::string RoboClaw::getErrorString() {
   return g_sensor_value_group_.error_string;
 }
 
-std::string RoboClaw::getErrorString(uint16_t errorStatus) {
-  if (errorStatus == 0)
-    return "normal";
-  else {
-    std::stringstream errorMessage;
-    if (errorStatus & 0x8000) {
-      errorMessage << "[M2 Home] ";
-    }
-
-    if (errorStatus & 0x4000) {
-      errorMessage << "[M1 Home] ";
-    }
-
-    if (errorStatus & 0x2000) {
-      errorMessage << "[Temperature2 Warning] ";
-    }
-
-    if (errorStatus & 0x1000) {
-      errorMessage << "[Temperature Warning] ";
-    }
-
-    if (errorStatus & 0x800) {
-      errorMessage << "[Main Battery Low Warning] ";
-    }
-
-    if (errorStatus & 0x400) {
-      errorMessage << "[Main Battery High Warning] ";
-    }
-
-    if (errorStatus & 0x200) {
-      errorMessage << "[M1 Driver Fault] ";
-    }
-
-    if (errorStatus & 0x100) {
-      errorMessage << "[M2 Driver Fault] ";
-    }
-
-    if (errorStatus & 0x80) {
-      errorMessage << "[Logic Battery Low Error] ";
-    }
-
-    if (errorStatus & 0x40) {
-      errorMessage << "[Logic Battery High Error] ";
-    }
-
-    if (errorStatus & 0x20) {
-      errorMessage << "[Main Battery High Error] ";
-    }
-
-    if (errorStatus & 0x10) {
-      errorMessage << "[Temperature2 Error] ";
-    }
-
-    if (errorStatus & 0x08) {
-      errorMessage << "[Temperature Error] ";
-    }
-
-    if (errorStatus & 0x04) {
-      errorMessage << "[E-Stop] ";
-    }
-
-    if (errorStatus & 0x02) {
-      errorMessage << "[M2 OverCurrent Warning] ";
-      motorAlarms_ |= kM2_OVER_CURRENT_ALARM;
-    } else {
-      motorAlarms_ &= ~kM2_OVER_CURRENT_ALARM;
-    }
-
-    if (errorStatus & 0x01) {
-      errorMessage << "[M1 OverCurrent Warning] ";
-      motorAlarms_ |= kM1_OVER_CURRENT_ALARM;
-    } else {
-      motorAlarms_ &= ~kM1_OVER_CURRENT_ALARM;
-    }
-
-    return errorMessage.str();
-  }
+// 32-bit status decode per updated RoboClaw documentation.
+// Lower 16 bits retain classic meanings. Upper bits (16-31) may include
+// extended status such as position/speed error limits or other firmware
+// specific flags; placeholders added for known documented bits. Adjust names
+// to match exact manual revision you are using.
+std::string RoboClaw::getErrorString(uint32_t status) {
+  if (status == 0) return "normal";
+  std::stringstream ss;
+  // Bit 0-15 (classic)
+  if (status & 0x00000001) { ss << "[M1 OverCurrent Warning] "; motorAlarms_ |= kM1_OVER_CURRENT_ALARM; } else { motorAlarms_ &= ~kM1_OVER_CURRENT_ALARM; }
+  if (status & 0x00000002) { ss << "[M2 OverCurrent Warning] "; motorAlarms_ |= kM2_OVER_CURRENT_ALARM; } else { motorAlarms_ &= ~kM2_OVER_CURRENT_ALARM; }
+  if (status & 0x00000004) ss << "[E-Stop] ";
+  if (status & 0x00000008) ss << "[Temperature Error] ";
+  if (status & 0x00000010) ss << "[Temperature2 Error] ";
+  if (status & 0x00000020) ss << "[Main Battery High Error] ";
+  if (status & 0x00000040) ss << "[Logic Battery High Error] ";
+  if (status & 0x00000080) ss << "[Logic Battery Low Error] ";
+  if (status & 0x00000100) ss << "[M2 Driver Fault] ";
+  if (status & 0x00000200) ss << "[M1 Driver Fault] ";
+  if (status & 0x00000400) ss << "[Main Battery High Warning] ";
+  if (status & 0x00000800) ss << "[Main Battery Low Warning] ";
+  if (status & 0x00001000) ss << "[Temperature Warning] ";
+  if (status & 0x00002000) ss << "[Temperature2 Warning] ";
+  if (status & 0x00004000) ss << "[M1 Home] ";
+  if (status & 0x00008000) ss << "[M2 Home] ";
+  // Upper 16 bits (example labels; verify with manual revision)
+  if (status & 0x00010000) ss << "[Speed Error Limit Warning] ";
+  if (status & 0x00020000) ss << "[Position Error Limit Warning] ";
+  if (status & 0x00040000) ss << "[Reserved Bit 18] ";
+  if (status & 0x00080000) ss << "[Reserved Bit 19] ";
+  if (status & 0x00100000) ss << "[Reserved Bit 20] ";
+  if (status & 0x00200000) ss << "[Reserved Bit 21] ";
+  if (status & 0x00400000) ss << "[Reserved Bit 22] ";
+  if (status & 0x00800000) ss << "[Reserved Bit 23] ";
+  if (status & 0x01000000) ss << "[Extended Flag 24] ";
+  if (status & 0x02000000) ss << "[Extended Flag 25] ";
+  if (status & 0x04000000) ss << "[Extended Flag 26] ";
+  if (status & 0x08000000) ss << "[Extended Flag 27] ";
+  if (status & 0x10000000) ss << "[Extended Flag 28] ";
+  if (status & 0x20000000) ss << "[Extended Flag 29] ";
+  if (status & 0x40000000) ss << "[Extended Flag 30] ";
+  if (status & 0x80000000) ss << "[Extended Flag 31] ";
+  return ss.str();
 }
 
 float RoboClaw::getLogicBatteryLevel() {
@@ -519,45 +485,36 @@ void RoboClaw::readSensorGroup() {
     CmdReadMotorVelocityPIDQ cmd_m1_read_motor_velocity_pidq(
         *this, kM1, m1_read_velocity_pidq_result);
     cmd_m1_read_motor_velocity_pidq.execute();
-
     CmdReadMotorVelocityPIDQ cmd_m2_read_motor_velocity_pidq(
         *this, kM2, m2_read_velocity_pidq_result);
     cmd_m2_read_motor_velocity_pidq.execute();
-
     float logic_battery_level = 0.0;
     CmdReadLogicBatteryVoltage cmd_logic_battery(*this, logic_battery_level);
     cmd_logic_battery.execute();
-
     float main_battery_level = 0.0;
     CmdReadMainBatteryVoltage cmd_main_battery(*this, main_battery_level);
     cmd_main_battery.execute();
-
-    EncodeResult m1_encoder_command_result;
-    EncodeResult m2_encoder_command_result;
+    EncodeResult m1_encoder_command_result{};
+    EncodeResult m2_encoder_command_result{};
     CmdReadEncoder m1_read_encoder_cmd(*this, kM1, m1_encoder_command_result);
     m1_read_encoder_cmd.execute();
     CmdReadEncoder m2_read_encoder_cmd(*this, kM2, m2_encoder_command_result);
     m2_read_encoder_cmd.execute();
-
-    TMotorCurrents motor_currents;
+    TMotorCurrents motor_currents{};
     CmdReadMotorCurrents cmd_read_motor_currents(*this, motor_currents);
     cmd_read_motor_currents.execute();
-
     int32_t m1_encoder_speed = 0;
     int32_t m2_encoder_speed = 0;
     CmdReadEncoderSpeed cmd_m1_read_encoder_speed(*this, kM1, m1_encoder_speed);
     cmd_m1_read_encoder_speed.execute();
     CmdReadEncoderSpeed cmd_m2_read_encoder_speed(*this, kM2, m2_encoder_speed);
     cmd_m2_read_encoder_speed.execute();
-
     float temperature = 0.0;
     CmdReadTemperature cmd_read_temperature(*this, temperature);
     cmd_read_temperature.execute();
-
-    unsigned short status = 0;
+    uint32_t status = 0;
     CmdReadStatus cmd_read_status(*this, status);
     cmd_read_status.execute();
-
     g_sensor_value_group_.error_status = status;
     g_sensor_value_group_.error_string = singleton()->getErrorString(status);
     g_sensor_value_group_.logic_battery_level = logic_battery_level;
@@ -572,10 +529,8 @@ void RoboClaw::readSensorGroup() {
     // Call getMotorCurrents before getMotorAlarms;
     g_sensor_value_group_.motor_currents = motor_currents;
     g_sensor_value_group_.motor_alarms = singleton()->getMotorAlarms();
-
     g_sensor_value_group_.temperature = temperature;
-    g_sensor_value_group_.last_sensor_read_time_ =
-        std::chrono::system_clock::now();
+    g_sensor_value_group_.last_sensor_read_time_ = std::chrono::system_clock::now();
   }
 }
 
