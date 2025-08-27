@@ -1,0 +1,5 @@
+# MIT License
+# Request clearing all active estop sources (master clear)
+---
+bool success
+string message

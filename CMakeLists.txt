@@ -20,11 +20,15 @@ add_compile_options(-g)
 find_package(ament_cmake REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
-find_package(nav_msgs)
+find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 include_directories(
   ${geometry_msgs_INCLUDE_DIRS}
@@ -38,10 +42,14 @@ include_directories(
 
 set(msg_files
   "msg/RoboClawStatus.msg"
+  "msg/RoboClawEStop.msg"
+  # Future: add more diagnostic messages if needed
 )
 
 set(srv_files
   "srv/ResetEncoders.srv"
+  "srv/ClearAllEStops.srv"
+  "srv/ClearEStopSource.srv"
 )
 
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -69,6 +77,23 @@ ament_target_dependencies(
 
 target_link_libraries(ros2_roboclaw_driver_node "${cpp_typesupport_target}")
 
+add_library(roboclaw_driver_core
+  src/status_decoder.cpp
+  src/estop_manager.cpp
+  src/safety_supervisor.cpp
+  src/transport.cpp
+  src/protocol.cpp
+  src/hardware_interface.cpp
+)
+ament_target_dependencies(roboclaw_driver_core rclcpp)
+
+add_executable(roboclaw_driver
+  src/driver_node.cpp
+  src/driver_main.cpp
+)
+ament_target_dependencies(roboclaw_driver rclcpp geometry_msgs nav_msgs sensor_msgs std_msgs diagnostic_msgs tf2 tf2_ros tf2_geometry_msgs)
+target_link_libraries(roboclaw_driver roboclaw_driver_core "${cpp_typesupport_target}")
+
 # Install config files.
 install(DIRECTORY
   config
@@ -84,6 +109,9 @@ install(DIRECTORY
 install(TARGETS
   ros2_roboclaw_driver_node
   DESTINATION lib/${PROJECT_NAME})
+install(TARGETS roboclaw_driver_core DESTINATION lib/${PROJECT_NAME})
+install(TARGETS roboclaw_driver DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY include/ DESTINATION include/)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

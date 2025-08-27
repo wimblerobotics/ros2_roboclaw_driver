@@ -1,0 +1,6 @@
+# MIT License
+# Request clearing a single estop source.
+string source   # Source identifier to clear
+---
+bool success
+string message
