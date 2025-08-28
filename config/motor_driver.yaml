@@ -16,7 +16,7 @@ motor_driver_node:
     # The device name to be opened. Change this to your actual device you are using.
     # Both USB and UART devices are supported. The device name is the
     # name of the device as it appears in the /dev directory.
-    device_name: "/dev/ttyAMA0"
+    device_name: "/dev/roboclaw"
     baud_rate: 38400 # This does not apply when using USB.
 
     # The assigned port for the device (as configured on the RoboClaw).
@@ -26,7 +26,7 @@ motor_driver_node:
     # These values are for my robot. Replace them with your own values.
     # Use can use Basic Micro's Motion Studio to determine the values.
     m1_p: 7.26239
-    m1_i: 1.36838
+    m1_i: 2.43
     m1_d: 0.0
     m1_qpps: 2437
     m2_p: 7.26239

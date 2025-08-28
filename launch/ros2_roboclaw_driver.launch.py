@@ -46,7 +46,7 @@ def generate_launch_description():
     # The 'emulate_tty' here helps colorize the log output to the console
     motor_driver_node = Node(
         emulate_tty=True,
-        executable='ros2_roboclaw_driver_node',
+        executable='roboclaw_driver',
         package='ros2_roboclaw_driver',
         parameters=[configParams],
         # prefix=['xterm -e gdb -ex run --args'],

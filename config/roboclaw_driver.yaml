@@ -1,0 +1,60 @@
+# Configuration for the new roboclaw_driver architecture
+# This is compatible with the roboclaw_driver executable (new architecture)
+
+roboclaw_driver:
+  ros__parameters:
+    # Device configuration
+    device_name: "/dev/roboclaw"       # Change to your device
+    baud_rate: 230400                  # Serial baud rate (ignored for USB)
+    device_port: 128                  # RoboClaw device address
+
+    # Motion parameters 
+    accel_quad_pulses_per_second: 1000.0
+    max_linear_velocity: 0.3
+    max_angular_velocity: 0.07
+    max_seconds_uncommanded_travel: 0.25
+
+    # Robot physical parameters
+    wheel_radius: 0.10169
+    wheel_separation: 0.345
+    quad_pulses_per_meter: 1566
+    quad_pulses_per_revolution: 979.62
+
+    # Publishing configuration
+    publish_odom: true
+    publish_joint_states: false
+    publish_tf: true
+    sensor_poll_rate_hz: 20.0
+    status_rate_hz: 1.0
+    odom_rate_hz: 40.0
+
+    # Joint names
+    left_wheel_joint_name: "left_wheel_joint"
+    right_wheel_joint_name: "right_wheel_joint"
+
+    # Frame names
+    frame_odom: "odom"
+    frame_base: "base_link"
+
+    # Safety configuration
+    safety_enabled: true
+    overcurrent_limit_m1: 6.0
+    overcurrent_limit_m2: 6.0
+    overcurrent_detect_time: 0.2
+    overcurrent_clear_time: 1.0
+    overcurrent_hysteresis: 0.5
+    temp1_limit: 80.0
+    temp2_limit: 80.0
+    temp_clear_delta: 5.0
+    runaway_speed_factor: 1.5
+    runaway_detect_time: 0.3
+    stall_speed_ratio: 0.1
+    stall_min_command: 100.0
+    stall_timeout: 1.0
+    estop_auto_clear: true
+    estop_repeat_window: 30.0
+    estop_repeat_limit: 5
+
+    # Odometry covariance
+    odom_linear_covariance: 0.0025
+    odom_angular_covariance: 0.01
