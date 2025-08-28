@@ -7,6 +7,7 @@
 #include <cstring>
 #include <cerrno>
 #include <vector>
+#include <sstream>
 
 namespace roboclaw_driver {
 
@@ -156,7 +157,9 @@ namespace roboclaw_driver {
     }
 
     return b;
-  }  bool RoboClawDevice::readBytes(uint8_t* dst, size_t len, double timeout_sec, std::string& err) {
+  }
+
+  bool RoboClawDevice::readBytes(uint8_t* dst, size_t len, double timeout_sec, std::string& err) {
     for (size_t i = 0; i < len; ++i) {
       dst[i] = readByte(timeout_sec, err);
       if (!err.empty()) return false;
@@ -164,462 +167,232 @@ namespace roboclaw_driver {
     return true;
   }
 
-  bool RoboClawDevice::commandTxNeedsCRC(uint8_t cmd) const {
-    switch (cmd) {
-    case 22:
-    case 23:
-    case 24:
-    case 25:
-    case 28:
-    case 29:
-    case 30:
-    case 31:
-    case 37:
-    case 46:
-    case 49:
-    case 82:
-      return true;
-    default:
-      return false;
-    }
+  static std::string toHex(const std::vector<uint8_t>& data) {
+    std::ostringstream oss;
+    for (size_t i = 0;i < data.size();++i) { if (i) oss << ' '; oss << std::hex << std::uppercase; oss.width(2); oss.fill('0'); oss << int(data[i]); }
+    return oss.str();
   }
 
-  bool RoboClawDevice::commandRxHasCRC(uint8_t cmd) const {
-    switch (cmd) {
-    case 21:
-    case 22:
-    case 23:
-    case 24:
-    case 25:
-    case 28:
-    case 29:
-    case 30:
-    case 31:
-    case 37:
-    case 46:
-    case 49:
-    case 55:  // ReadM1VelocityPID
-    case 56:  // ReadM2VelocityPID
-    case 82:
-    case 90:
-      return true;
-    default:
-      return false;
-    }
-  }
-
-  bool RoboClawDevice::sendSimple(uint8_t command, const uint8_t* payload, size_t len,
-    std::string& err) {
-    std::vector<uint8_t> buf;
-    buf.reserve(2 + len);
-    buf.push_back(addr_);
-    buf.push_back(command);
-    for (size_t i = 0; i < len; ++i) buf.push_back(payload[i]);
-    return writeBytes(buf.data(), buf.size(), err);
-  }
-
-  bool RoboClawDevice::sendCrc(uint8_t command, const uint8_t* payload, size_t len,
-    std::string& err) {
-    std::vector<uint8_t> buf;
-    buf.reserve(2 + len + 2);
-    buf.push_back(addr_);
-    buf.push_back(command);
-    for (size_t i = 0; i < len; ++i) buf.push_back(payload[i]);
-    uint16_t crc = 0;
-    for (auto b : buf) updateCrc(crc, b);
-    buf.push_back((crc >> 8) & 0xFF);
-    buf.push_back(crc & 0xFF);
-    return writeBytes(buf.data(), buf.size(), err);
-  }
-
-  bool RoboClawDevice::readU16(uint8_t cmd, uint16_t& val, std::string& err) {
-    if (commandTxNeedsCRC(cmd)) {
-      if (!sendCrc(cmd, nullptr, 0, err)) return false;
-    } else {
-      if (!sendSimple(cmd, nullptr, 0, err)) return false;
-    }
-    bool rx_crc = commandRxHasCRC(cmd);
-    uint8_t data[2];
-    if (!readBytes(data, 2, 0.05, err)) return false;
-    uint16_t crc = 0;
-    if (rx_crc) {
-      updateCrc(crc, addr_);
-      updateCrc(crc, cmd);
-      updateCrc(crc, data[0]);
-      updateCrc(crc, data[1]);
-      uint8_t cr_hi, cr_lo;
-      if (!readBytes(&cr_hi, 1, 0.05, err)) return false;
-      if (!readBytes(&cr_lo, 1, 0.05, err)) return false;
-      uint16_t rx = (uint16_t(cr_hi) << 8) | cr_lo;
-      if (rx != crc) {
-        err = "crc mismatch";
-        return false;
+  bool RoboClawDevice::sendCommandWrite(uint8_t command, const uint8_t* payload, size_t len, std::string& err) {
+    last_command_ = command; last_was_write_ = true; last_tx_.clear(); last_rx_.clear();
+    for (int attempt = 0; attempt < retry_count_; ++attempt) {
+      flush();
+      std::vector<uint8_t> buf; buf.reserve(2 + len + 2);
+      uint16_t crc = 0;
+      buf.push_back(addr_); updateCrc(crc, addr_);
+      buf.push_back(command); updateCrc(crc, command);
+      for (size_t i = 0; i < len; ++i) { uint8_t b = payload ? payload[i] : 0; buf.push_back(b); updateCrc(crc, b); }
+      buf.push_back((uint8_t)(crc >> 8)); buf.push_back((uint8_t)crc);
+      if (!writeBytes(buf.data(), buf.size(), err)) { last_tx_ = toHex(buf); continue; }
+      last_tx_ = toHex(buf);
+      std::string ack_err; uint8_t ack = readByte(0.05, ack_err);
+      if (ack_err.empty()) {
+        last_rx_ = toHex(std::vector<uint8_t>{ack});
+        if (ack == 0xFF) return true;
+        err = "unexpected ack byte"; return false;
       }
+      last_rx_ = ack_err; // store error string
     }
-    val = (uint16_t(data[0]) << 8) | data[1];
+    err = "write failed after retries";
+    return false;
+  }
+
+  bool RoboClawDevice::sendCommandRead(uint8_t command, std::string& err) {
+    // SPEC COMPLIANCE: Read (query) commands transmit ONLY address + command.
+    last_command_ = command; last_was_write_ = false; last_tx_.clear(); last_rx_.clear();
+    flush();
+    uint8_t hdr[2] = { addr_, command };
+    if (!writeBytes(hdr, 2, err)) { last_tx_ = toHex(std::vector<uint8_t>{hdr, hdr + 2}); return false; }
+    last_tx_ = toHex(std::vector<uint8_t>{hdr, hdr + 2});
     return true;
   }
 
-  bool RoboClawDevice::readCurrents(uint8_t cmd, uint16_t& m1, uint16_t& m2, std::string& err) {
-    if (commandTxNeedsCRC(cmd)) {
-      if (!sendCrc(cmd, nullptr, 0, err)) return false;
-    } else {
-      if (!sendSimple(cmd, nullptr, 0, err)) return false;
-    }
-    bool rx_crc = commandRxHasCRC(cmd);
+  bool RoboClawDevice::readU16(uint8_t cmd, uint16_t& val, std::string& err) {
+    if (!sendCommandRead(cmd, err)) return false;
+    std::vector<uint8_t> rx;
+    uint8_t data[2]; if (!readBytes(data, 2, 0.05, err)) { last_rx_ = "ERR:" + err; return false; } rx.insert(rx.end(), data, data + 2);
+    uint8_t crc_extra[2]; if (!readBytes(crc_extra, 2, 0.05, err)) { last_rx_ = toHex(rx) + " | ERR:" + err; return false; } rx.insert(rx.end(), crc_extra, crc_extra + 2);
+    uint16_t crc = 0; updateCrc(crc, addr_); updateCrc(crc, cmd); updateCrc(crc, data[0]); updateCrc(crc, data[1]); uint16_t rxcrc = (uint16_t(crc_extra[0]) << 8) | crc_extra[1];
+    last_rx_ = toHex(rx);
+    if (crc != rxcrc) { err = "crc mismatch"; return false; }
+    val = (uint16_t(data[0]) << 8) | data[1]; return true;
+  }
+
+  bool RoboClawDevice::readCurrents(uint8_t cmd, int16_t& m1, int16_t& m2, std::string& err) {
+    if (!sendCommandRead(cmd, err)) return false;
+    std::vector<uint8_t> rx;
     uint8_t data[4];
-    if (!readBytes(data, 4, 0.05, err)) return false;
-    uint16_t crc = 0;
-    if (rx_crc) {
-      updateCrc(crc, addr_);
-      updateCrc(crc, cmd);
-      for (int i = 0; i < 4; ++i) updateCrc(crc, data[i]);
-      uint8_t hi, lo;
-      if (!readBytes(&hi, 1, 0.05, err)) return false;
-      if (!readBytes(&lo, 1, 0.05, err)) return false;
-      uint16_t rx = (uint16_t(hi) << 8) | lo;
-      if (rx != crc) {
-        err = "crc mismatch";
-        return false;
-      }
-    }
-    m1 = (uint16_t(data[0]) << 8) | data[1];
-    m2 = (uint16_t(data[2]) << 8) | data[3];
+    if (!readBytes(data, 4, 0.05, err)) { last_rx_ = "ERR:" + err; return false; }
+    rx.insert(rx.end(), data, data + 4);
+    uint8_t crc_extra[2];
+    if (!readBytes(crc_extra, 2, 0.05, err)) { last_rx_ = toHex(rx) + " | ERR:" + err; return false; }
+    rx.insert(rx.end(), crc_extra, crc_extra + 2);
+    uint16_t crc = 0; updateCrc(crc, addr_); updateCrc(crc, cmd);
+    for (int i = 0; i < 4; ++i) updateCrc(crc, data[i]);
+    uint16_t rxcrc = (uint16_t(crc_extra[0]) << 8) | crc_extra[1];
+    last_rx_ = toHex(rx);
+    if (crc != rxcrc) { err = "crc mismatch"; return false; }
+    m1 = (int16_t)((uint16_t)data[0] << 8 | data[1]);
+    m2 = (int16_t)((uint16_t)data[2] << 8 | data[3]);
     return true;
   }
 
   bool RoboClawDevice::readU32(uint8_t cmd, uint32_t& val, std::string& err) {
-    if (commandTxNeedsCRC(cmd)) {
-      if (!sendCrc(cmd, nullptr, 0, err)) return false;
-    } else {
-      if (!sendSimple(cmd, nullptr, 0, err)) return false;
-    }
-    bool rx_crc = commandRxHasCRC(cmd);
+    if (!sendCommandRead(cmd, err)) return false;
+    std::vector<uint8_t> rx;
     uint8_t data[4];
-    if (!readBytes(data, 4, 0.05, err)) return false;
-    uint16_t crc = 0;
-    if (rx_crc) {
-      updateCrc(crc, addr_);
-      updateCrc(crc, cmd);
-      for (int i = 0; i < 4; ++i) updateCrc(crc, data[i]);
-      uint8_t hi, lo;
-      if (!readBytes(&hi, 1, 0.05, err)) return false;
-      if (!readBytes(&lo, 1, 0.05, err)) return false;
-      uint16_t rx = (uint16_t(hi) << 8) | lo;
-      if (rx != crc) {
-        err = "crc mismatch";
-        return false;
-      }
-    }
+    if (!readBytes(data, 4, 0.05, err)) { last_rx_ = "ERR:" + err; return false; }
+    rx.insert(rx.end(), data, data + 4);
+    uint8_t crc_extra[2];
+    if (!readBytes(crc_extra, 2, 0.05, err)) { last_rx_ = toHex(rx) + " | ERR:" + err; return false; }
+    rx.insert(rx.end(), crc_extra, crc_extra + 2);
+    uint16_t crc = 0; updateCrc(crc, addr_); updateCrc(crc, cmd);
+    for (int i = 0; i < 4; ++i) updateCrc(crc, data[i]);
+    uint16_t rxcrc = (uint16_t(crc_extra[0]) << 8) | crc_extra[1];
+    last_rx_ = toHex(rx);
+    if (crc != rxcrc) { err = "crc mismatch"; return false; }
     val = (uint32_t(data[0]) << 24) | (uint32_t(data[1]) << 16) | (uint32_t(data[2]) << 8) | data[3];
     return true;
   }
 
-  bool RoboClawDevice::readU32WithStatus(uint8_t cmd, uint32_t& value, uint8_t& status,
-    std::string& err) {
-    uint8_t trys = MAXRETRY;
-
-    do {
-      flush();
-
-      // Send command
-      std::vector<uint8_t> cmd_buf = { addr_, cmd };
-      if (!writeBytes(cmd_buf.data(), cmd_buf.size(), err)) {
-        continue;
-      }
-
-      // Read response - 5 bytes (4 for value + 1 for status)
-      uint8_t data[5];
-      bool read_ok = true;
-
-      for (int i = 0; i < 5; i++) {
-        std::string read_err;
-        data[i] = readByte(0.1, read_err);
-        if (!read_err.empty()) {
-          read_ok = false;
-          break;
-        }
-      }
-
-      if (!read_ok) {
-        continue;
-      }
-
-      // Read CRC if command has one
-      if (commandRxHasCRC(cmd)) {
-        uint8_t crc_high, crc_low;
-        std::string crc_err;
-        crc_high = readByte(0.1, crc_err);
-        if (!crc_err.empty()) continue;
-        crc_low = readByte(0.1, crc_err);
-        if (!crc_err.empty()) continue;
-
-        // Calculate expected CRC
-        uint16_t calc_crc = 0;
-        updateCrc(calc_crc, addr_);
-        updateCrc(calc_crc, cmd);
-        for (int i = 0; i < 5; i++) {
-          updateCrc(calc_crc, data[i]);
-        }
-
-        uint16_t recv_crc = (uint16_t(crc_high) << 8) | crc_low;
-        if (calc_crc != recv_crc) {
-          continue;  // CRC mismatch, retry
-        }
-      }
-
-      // Decode value and status
-      value = (uint32_t(data[0]) << 24) | (uint32_t(data[1]) << 16) | (uint32_t(data[2]) << 8) | data[3];
-      status = data[4];
-      return true;
-
-    } while (trys--);
-
-    err = "readU32WithStatus failed after retries";
-    return false;
+  bool RoboClawDevice::readU32WithStatus(uint8_t cmd, uint32_t& value, uint8_t& status, std::string& err) {
+    if (!sendCommandRead(cmd, err)) return false;
+    std::vector<uint8_t> rx;
+    uint8_t data[5];
+    if (!readBytes(data, 5, 0.05, err)) { last_rx_ = "ERR:" + err; return false; }
+    rx.insert(rx.end(), data, data + 5);
+    uint8_t crc_extra[2];
+    if (!readBytes(crc_extra, 2, 0.05, err)) { last_rx_ = toHex(rx) + " | ERR:" + err; return false; }
+    rx.insert(rx.end(), crc_extra, crc_extra + 2);
+    uint16_t crc = 0; updateCrc(crc, addr_); updateCrc(crc, cmd);
+    for (int i = 0; i < 5; ++i) updateCrc(crc, data[i]);
+    uint16_t rxcrc = (uint16_t(crc_extra[0]) << 8) | crc_extra[1];
+    last_rx_ = toHex(rx);
+    if (crc != rxcrc) { err = "crc mismatch"; return false; }
+    value = (uint32_t(data[0]) << 24) | (uint32_t(data[1]) << 16) | (uint32_t(data[2]) << 8) | data[3];
+    status = data[4];
+    return true;
   }
 
   bool RoboClawDevice::readVelocity(uint8_t cmd, int32_t& vel, std::string& err) {
-    if (commandTxNeedsCRC(cmd)) {
-      if (!sendCrc(cmd, nullptr, 0, err)) return false;
-    } else {
-      if (!sendSimple(cmd, nullptr, 0, err)) return false;
-    }
-    bool rx_crc = commandRxHasCRC(cmd);
+    if (!sendCommandRead(cmd, err)) return false;
+    std::vector<uint8_t> rx;
     uint8_t data[5];
-    if (!readBytes(data, 5, 0.05, err)) return false;
-    uint16_t crc = 0;
-    if (rx_crc) {
-      updateCrc(crc, addr_);
-      updateCrc(crc, cmd);
-      for (int i = 0; i < 5; ++i) updateCrc(crc, data[i]);
-      uint8_t hi, lo;
-      if (!readBytes(&hi, 1, 0.05, err)) return false;
-      if (!readBytes(&lo, 1, 0.05, err)) return false;
-      uint16_t rx = (uint16_t(hi) << 8) | lo;
-      if (rx != crc) {
-        err = "crc mismatch";
-        return false;
-      }
-    }
-    int32_t raw = (int32_t(data[0]) << 24) | (int32_t(data[1]) << 16) | (int32_t(data[2]) << 8) |
-      data[3];
+    if (!readBytes(data, 5, 0.05, err)) { last_rx_ = "ERR:" + err; return false; }
+    rx.insert(rx.end(), data, data + 5);
+    uint8_t crc_extra[2];
+    if (!readBytes(crc_extra, 2, 0.05, err)) { last_rx_ = toHex(rx) + " | ERR:" + err; return false; }
+    rx.insert(rx.end(), crc_extra, crc_extra + 2);
+    uint16_t crc = 0; updateCrc(crc, addr_); updateCrc(crc, cmd);
+    for (int i = 0; i < 5; ++i) updateCrc(crc, data[i]);
+    uint16_t rxcrc = (uint16_t(crc_extra[0]) << 8) | crc_extra[1];
+    last_rx_ = toHex(rx);
+    if (crc != rxcrc) { err = "crc mismatch"; return false; }
+    int32_t raw = (int32_t(data[0]) << 24) | (int32_t(data[1]) << 16) | (int32_t(data[2]) << 8) | data[3];
     if (data[4] != 0) raw = -raw;
     vel = raw;
     return true;
   }
 
   bool RoboClawDevice::setPID(int motor, float p, float i, float d, uint32_t qpps, std::string& err) {
-    uint8_t cmd = (motor == 1) ? 28 : 29;
-    uint32_t P = (uint32_t)(p * 65536.0f);
-    uint32_t I = (uint32_t)(i * 65536.0f);
-    uint32_t D = (uint32_t)(d * 65536.0f);
-    uint8_t payload[16] = { (uint8_t)(P >> 24), (uint8_t)(P >> 16), (uint8_t)(P >> 8), (uint8_t)P,
-                           (uint8_t)(I >> 24), (uint8_t)(I >> 16), (uint8_t)(I >> 8), (uint8_t)I,
-                           (uint8_t)(D >> 24), (uint8_t)(D >> 16), (uint8_t)(D >> 8), (uint8_t)D,
-                           (uint8_t)(qpps >> 24), (uint8_t)(qpps >> 16), (uint8_t)(qpps >> 8),
-                           (uint8_t)qpps };
-    return commandTxNeedsCRC(cmd) ? sendCrc(cmd, payload, 16, err) : sendSimple(cmd, payload, 16, err);
+    uint8_t cmd = (motor == 1) ? 28 : 29; uint32_t P = (uint32_t)(p * 65536.0f); uint32_t I = (uint32_t)(i * 65536.0f); uint32_t D = (uint32_t)(d * 65536.0f); uint8_t payload[16] = { (uint8_t)(D >> 24),(uint8_t)(D >> 16),(uint8_t)(D >> 8),(uint8_t)D,(uint8_t)(P >> 24),(uint8_t)(P >> 16),(uint8_t)(P >> 8),(uint8_t)P,(uint8_t)(I >> 24),(uint8_t)(I >> 16),(uint8_t)(I >> 8),(uint8_t)I,(uint8_t)(qpps >> 24),(uint8_t)(qpps >> 16),(uint8_t)(qpps >> 8),(uint8_t)qpps }; return sendCommandWrite(cmd, payload, 16, err);
   }
 
-  bool RoboClawDevice::read4Values(uint8_t cmd, uint32_t& val1, uint32_t& val2, uint32_t& val3, uint32_t& val4, std::string& err) {
-    uint8_t trys = MAXRETRY;
-
-    do {
-      flush();
-
-      // Send command
-      std::vector<uint8_t> cmd_buf = { addr_, cmd };
-      if (!writeBytes(cmd_buf.data(), cmd_buf.size(), err)) {
-        continue;
-      }
-
-      // Read response - 16 bytes for 4 uint32 values
-      uint8_t data[16];
-      bool read_ok = true;
-      int16_t byte_val;
-
-      for (int i = 0; i < 16; i++) {
-        std::string read_err;
-        byte_val = (int16_t)readByte(0.1, read_err);
-        if (!read_err.empty()) {
-          read_ok = false;
-          break;
-        }
-        data[i] = (uint8_t)byte_val;
-      }
-
-      if (!read_ok) {
-        continue;
-      }
-
-      // Read CRC
-      uint8_t crc_high, crc_low;
-      std::string crc_err;
-      crc_high = readByte(0.1, crc_err);
-      if (!crc_err.empty()) continue;
-      crc_low = readByte(0.1, crc_err);
-      if (!crc_err.empty()) continue;
-
-      // Calculate expected CRC
-      uint16_t calc_crc = 0;
-      updateCrc(calc_crc, addr_);
-      updateCrc(calc_crc, cmd);
-      for (int i = 0; i < 16; i++) {
-        updateCrc(calc_crc, data[i]);
-      }
-
-      uint16_t recv_crc = (uint16_t(crc_high) << 8) | crc_low;
-      if (calc_crc == recv_crc) {
-        // Decode the 4 uint32 values
-        val1 = (uint32_t(data[0]) << 24) | (uint32_t(data[1]) << 16) | (uint32_t(data[2]) << 8) | data[3];
-        val2 = (uint32_t(data[4]) << 24) | (uint32_t(data[5]) << 16) | (uint32_t(data[6]) << 8) | data[7];
-        val3 = (uint32_t(data[8]) << 24) | (uint32_t(data[9]) << 16) | (uint32_t(data[10]) << 8) | data[11];
-        val4 = (uint32_t(data[12]) << 24) | (uint32_t(data[13]) << 16) | (uint32_t(data[14]) << 8) | data[15];
-        return true;
-      }
-
-    } while (trys--);
-
-    err = "read4Values failed after retries";
-    return false;
-  }
+  bool RoboClawDevice::read4Values(uint8_t cmd, uint32_t& v1, uint32_t& v2, uint32_t& v3, uint32_t& v4, std::string& err) { if (!sendCommandRead(cmd, err)) return false; std::vector<uint8_t> rx; uint8_t data[16]; if (!readBytes(data, 16, 0.1, err)) { last_rx_ = "ERR:" + err; return false; } rx.insert(rx.end(), data, data + 16); uint8_t crc_extra[2]; if (!readBytes(crc_extra, 2, 0.05, err)) { last_rx_ = toHex(rx) + " | ERR:" + err; return false; } rx.insert(rx.end(), crc_extra, crc_extra + 2); uint16_t crc = 0; updateCrc(crc, addr_); updateCrc(crc, cmd); for (int i = 0;i < 16;++i) updateCrc(crc, data[i]); uint16_t rxcrc = (uint16_t(crc_extra[0]) << 8) | crc_extra[1]; last_rx_ = toHex(rx); if (crc != rxcrc) { err = "crc mismatch"; return false; } v1 = (uint32_t(data[0]) << 24) | (uint32_t(data[1]) << 16) | (uint32_t(data[2]) << 8) | data[3]; v2 = (uint32_t(data[4]) << 24) | (uint32_t(data[5]) << 16) | (uint32_t(data[6]) << 8) | data[7]; v3 = (uint32_t(data[8]) << 24) | (uint32_t(data[9]) << 16) | (uint32_t(data[10]) << 8) | data[11]; v4 = (uint32_t(data[12]) << 24) | (uint32_t(data[13]) << 16) | (uint32_t(data[14]) << 8) | data[15]; return true; }
 
   bool RoboClawDevice::readPID(int motor, PIDSnapshot& pid_out, std::string& err) {
-    uint8_t cmd = (motor == 1) ? 55 : 56;  // ReadM1VelocityPID : ReadM2VelocityPID
-    uint32_t P, I, D, qpps;
-
-    if (!read4Values(cmd, P, I, D, qpps, err)) {
-      return false;
-    }
-
-    // Convert from fixed point (65536 scale factor) to float
-    pid_out.p = static_cast<float>(P) / 65536.0f;
-    pid_out.i = static_cast<float>(I) / 65536.0f;
-    pid_out.d = static_cast<float>(D) / 65536.0f;
-    pid_out.qpps = qpps;
-
-    return true;
+    uint8_t cmd = (motor == 1) ? 55 : 56; uint32_t P, I, D, qpps; if (!read4Values(cmd, P, I, D, qpps, err)) return false; pid_out.p = static_cast<float>(P) / 65536.0f; pid_out.i = static_cast<float>(I) / 65536.0f; pid_out.d = static_cast<float>(D) / 65536.0f; pid_out.qpps = qpps; return true;
   }
 
   bool RoboClawDevice::driveSpeeds(int32_t m1_qpps, int32_t m2_qpps, std::string& err) {
     uint8_t cmd = 37;
-    uint8_t payload[8] = { (uint8_t)(m1_qpps >> 24), (uint8_t)(m1_qpps >> 16), (uint8_t)(m1_qpps >> 8),
-                          (uint8_t)m1_qpps,          (uint8_t)(m2_qpps >> 24), (uint8_t)(m2_qpps >> 16),
-                          (uint8_t)(m2_qpps >> 8),   (uint8_t)m2_qpps };
-    bool ok = commandTxNeedsCRC(cmd) ? sendCrc(cmd, payload, 8, err) : sendSimple(cmd, payload, 8, err);
-    if (ok) {
-      last_cmd_m1_ = m1_qpps;
-      last_cmd_m2_ = m2_qpps;
-    }
+    uint8_t payload[8] = {
+      (uint8_t)(m1_qpps >> 24),(uint8_t)(m1_qpps >> 16),(uint8_t)(m1_qpps >> 8),(uint8_t)m1_qpps,
+      (uint8_t)(m2_qpps >> 24),(uint8_t)(m2_qpps >> 16),(uint8_t)(m2_qpps >> 8),(uint8_t)m2_qpps
+    };
+    bool ok = sendCommandWrite(cmd, payload, 8, err);
+    if (ok) { last_cmd_m1_ = m1_qpps; last_cmd_m2_ = m2_qpps; }
     return ok;
   }
 
   bool RoboClawDevice::driveSpeedsAccelDistance(int32_t m1_qpps, int32_t m2_qpps, uint32_t accel, uint32_t distance, std::string& err) {
-    uint8_t cmd = 46;  // Drive M1/M2 With Signed Speed, Accel and Distance (Buffered)
-    uint8_t payload[16] = {
-      (uint8_t)(m1_qpps >> 24), (uint8_t)(m1_qpps >> 16), (uint8_t)(m1_qpps >> 8), (uint8_t)m1_qpps,
-      (uint8_t)(m2_qpps >> 24), (uint8_t)(m2_qpps >> 16), (uint8_t)(m2_qpps >> 8), (uint8_t)m2_qpps,
-      (uint8_t)(accel >> 24), (uint8_t)(accel >> 16), (uint8_t)(accel >> 8), (uint8_t)accel,
-      (uint8_t)(distance >> 24), (uint8_t)(distance >> 16), (uint8_t)(distance >> 8), (uint8_t)distance
+    // SPEC (Cmd 46 - MIXEDSPEEDACCELDIST):
+    //  Address, 46,
+    //   Accel(4), SpeedM1(4), DistanceM1(4), SpeedM2(4), DistanceM2(4), Buffer(1), CRC(2)
+    //  Speeds are signed 32-bit, accel & distances unsigned. Buffer: 0=queue, 1=immediate (flush others).
+    //  Our API supplies a single distance -> apply to both motors (DistanceM1 = DistanceM2 = distance).
+    uint8_t cmd = 46;
+    uint8_t buffer_mode = 0; // queue (do not flush) per safer default
+    uint8_t payload[21] = {
+      // Accel
+      (uint8_t)(accel >> 24),(uint8_t)(accel >> 16),(uint8_t)(accel >> 8),(uint8_t)accel,
+      // SpeedM1
+      (uint8_t)(m1_qpps >> 24),(uint8_t)(m1_qpps >> 16),(uint8_t)(m1_qpps >> 8),(uint8_t)m1_qpps,
+      // DistanceM1
+      (uint8_t)(distance >> 24),(uint8_t)(distance >> 16),(uint8_t)(distance >> 8),(uint8_t)distance,
+      // SpeedM2
+      (uint8_t)(m2_qpps >> 24),(uint8_t)(m2_qpps >> 16),(uint8_t)(m2_qpps >> 8),(uint8_t)m2_qpps,
+      // DistanceM2
+      (uint8_t)(distance >> 24),(uint8_t)(distance >> 16),(uint8_t)(distance >> 8),(uint8_t)distance,
+      // Buffer flag
+      buffer_mode
     };
-    bool ok = commandTxNeedsCRC(cmd) ? sendCrc(cmd, payload, 16, err) : sendSimple(cmd, payload, 16, err);
-    if (ok) {
-      last_cmd_m1_ = m1_qpps;
-      last_cmd_m2_ = m2_qpps;
-    }
+    bool ok = sendCommandWrite(cmd, payload, 21, err);
+    if (ok) { last_cmd_m1_ = m1_qpps; last_cmd_m2_ = m2_qpps; }
     return ok;
   }
 
-  bool RoboClawDevice::resetEncoders(std::string& err) {
-    uint8_t cmd = 20;
-    return sendSimple(cmd, nullptr, 0, err);
-  }
+  bool RoboClawDevice::resetEncoders(std::string& err) { uint8_t cmd = 20; return sendCommandWrite(cmd, nullptr, 0, err); }
 
   std::string RoboClawDevice::version() {
-    std::string err;
-    uint8_t cmd = 21;
-
-    if (!sendSimple(cmd, nullptr, 0, err)) {
+    // SPEC: Command 21 returns a NULL-terminated ASCII string (max 48 incl terminator) then 16-bit CRC.
+    // CRC covers: address, command (0x15), every data byte INCLUDING the terminating 0x00.
+    last_command_ = 21; last_was_write_ = false; last_tx_.clear(); last_rx_.clear();
+    std::string err; if (!sendCommandRead(21, err)) { last_rx_ = "SEND_FAIL:" + err; return ""; }
+    std::vector<uint8_t> data; data.reserve(48); bool got_term = false; std::string rx_err;
+    for (int i = 0; i < 48; ++i) {
+      std::string e; uint8_t ch = readByte(0.1, e);
+      if (!e.empty()) { rx_err = e; break; }
+      data.push_back(ch);
+      if (ch == 0) { got_term = true; break; }
+    }
+    if (!rx_err.empty()) { last_rx_ = std::string("RX_ERR bytes=") + toHex(data) + " err=" + rx_err; return ""; }
+    if (!got_term) { last_rx_ = std::string("NO_TERM bytes=") + toHex(data); return ""; }
+    // Read CRC (2 bytes)
+    uint8_t crc_bytes[2]; std::string ecrc;
+    crc_bytes[0] = readByte(0.1, ecrc); if (!ecrc.empty()) { last_rx_ = "CRC_HI_ERR bytes=" + toHex(data); return ""; }
+    crc_bytes[1] = readByte(0.1, ecrc); if (!ecrc.empty()) { last_rx_ = "CRC_LO_ERR bytes=" + toHex(data); return ""; }
+    uint16_t rxcrc = (uint16_t(crc_bytes[0]) << 8) | crc_bytes[1];
+    // Compute CRC over address, command, data (including terminator present as last element)
+    uint16_t crc = 0; updateCrc(crc, addr_); updateCrc(crc, 21); for (uint8_t b : data) updateCrc(crc, b);
+    if (crc != rxcrc) {
+      std::ostringstream oss; oss << "CRC_FAIL bytes=" << toHex(data) << " rxcrc=" << std::hex << std::uppercase << rxcrc << " expect=" << crc;
+      last_rx_ = oss.str();
       return "";
     }
+    // Build printable string excluding terminator
+    std::string ver;
+    for (uint8_t b : data) { if (b == 0) break; ver.push_back(char(b)); }
+    std::ostringstream oss; oss << "OK bytes=" << toHex(data) << " rxcrc=" << std::hex << std::uppercase << rxcrc;
+    last_rx_ = oss.str();
+    return ver;
+  }
 
-    // Read version string - it should be null-terminated  
-    std::vector<uint8_t> accum;
-    accum.reserve(64);
-
-    // Read up to 32 bytes looking for null terminator
-    for (int i = 0; i < 32; i++) {
-      uint8_t ch = 0;
-      std::string e2;
-      ch = readByte(0.1, e2);
-      if (!e2.empty()) {
-        return "";
-      }
-
-      if (ch == 0) {
-        break;
-      }
-      accum.push_back(ch);
-    }
-
-    // read CRC
-    uint8_t hi = 0, lo = 0;
-    std::string e3;
-    hi = readByte(0.1, e3);
-    if (!e3.empty()) {
-      return "";
-    }
-
-    lo = readByte(0.1, e3);
-    if (!e3.empty()) {
-      return "";
-    }
-
-    // Calculate CRC including null terminator
-    uint16_t crc_calc = 0;
-    updateCrc(crc_calc, addr_);
-    updateCrc(crc_calc, cmd);
-    for (auto b : accum) updateCrc(crc_calc, b);
-    updateCrc(crc_calc, 0);  // Include null terminator in CRC
-    uint16_t crc_rx = (uint16_t(hi) << 8) | lo;
-
-    if (crc_calc != crc_rx) {
-      return "";
-    }
-
-    return std::string(accum.begin(), accum.end());
-  }  bool RoboClawDevice::readSnapshot(Snapshot& out, std::string& err) {
-    uint32_t v = 0;
-    uint8_t status = 0;
-    if (!readU32WithStatus(16, v, status, err)) return false;  // GETM1ENC - correct command
-    out.m1_enc.value = v;
-    out.m1_enc.status = status;
-    if (!readU32WithStatus(17, v, status, err)) return false;  // GETM2ENC - correct command
-    out.m2_enc.value = v;
-    out.m2_enc.status = status;
-    int32_t vel = 0;
-    if (readVelocity(30, vel, err)) out.m1_enc.speed_qpps = vel;
-    if (readVelocity(31, vel, err)) out.m2_enc.speed_qpps = vel;
-    uint16_t mv = 0;
-    if (readU16(24, mv, err)) out.volts.main = mv / 10.0f;
-    uint16_t lv = 0;
-    if (readU16(25, lv, err)) out.volts.logic = lv / 10.0f;
-    uint16_t m1 = 0, m2 = 0;
-    if (readCurrents(49, m1, m2, err)) {
-      out.currents.m1_inst = m1 / 100.0f;
-      out.currents.m2_inst = m2 / 100.0f;
-    }
-    uint16_t temp_raw = 0;
-    if (readU16(82, temp_raw, err)) out.temps.t1 = temp_raw / 10.0f;
-    uint32_t status_bits = 0;
-    if (readU32(90, status_bits, err)) out.status_bits = status_bits;
-
-    // Read PID values for both motors
-    readPID(1, out.m1_pid, err);  // Don't fail snapshot if PID read fails
-    readPID(2, out.m2_pid, err);
-
+  bool RoboClawDevice::readSnapshot(Snapshot& out, std::string& err) {
+    // Order matters to avoid stale data; gather encoder, velocity, currents, volts, temps, status, PID.
+    if (!readU32WithStatus(16, out.m1_enc.value, out.m1_enc.status, err)) return false;
+    if (!readU32WithStatus(17, out.m2_enc.value, out.m2_enc.status, err)) return false;
+    if (!readVelocity(30, out.m1_enc.speed_qpps, err)) return false;
+    if (!readVelocity(31, out.m2_enc.speed_qpps, err)) return false;
+    int16_t c1, c2; if (!readCurrents(49, c1, c2, err)) return false; out.currents.m1_inst = c1 / 100.0f; out.currents.m2_inst = c2 / 100.0f;
+    uint16_t mv; if (!readU16(24, mv, err)) return false; out.volts.main = mv / 10.0f;
+    if (!readU16(25, mv, err)) return false; out.volts.logic = mv / 10.0f;
+    if (!readU16(82, mv, err)) return false; out.temps.t1 = mv / 10.0f;
+    if (!readU16(83, mv, err)) { out.temps.t2 = 0.0f; } else out.temps.t2 = mv / 10.0f;
+    uint32_t status; if (!readU32(90, status, err)) return false; out.status_bits = status;
+    // PID (optional; failure shouldn't abort snapshot)
+    PIDSnapshot p1, p2; std::string perr; if (readPID(1, p1, perr)) out.m1_pid = p1; if (readPID(2, p2, perr)) out.m2_pid = p2;
     return true;
   }
 
-}  // namespace roboclaw_driver
+} // namespace roboclaw_driver

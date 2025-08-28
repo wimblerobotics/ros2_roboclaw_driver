@@ -62,6 +62,12 @@ namespace roboclaw_driver {
     int32_t getLastCommand1() const { return last_cmd_m1_; }
     int32_t getLastCommand2() const { return last_cmd_m2_; }
 
+    void setRetryCount(int c) { retry_count_ = c; }
+    // Logging helpers
+    std::string lastTx() const { return last_tx_; }
+    std::string lastRx() const { return last_rx_; }
+    uint8_t lastCommand() const { return last_command_; }
+
   private:
     std::string device_;
     int baud_;
@@ -69,6 +75,12 @@ namespace roboclaw_driver {
     int fd_ = -1;
     int32_t last_cmd_m1_ = 0;
     int32_t last_cmd_m2_ = 0;
+    int retry_count_ = 3; // default retries for all transactions
+    // Diagnostics
+    std::string last_tx_;
+    std::string last_rx_;
+    uint8_t last_command_ = 0;
+    bool last_was_write_ = false;
 
     bool openPort(std::string& err);
     void updateCrc(uint16_t& crc, uint8_t byte);
@@ -76,12 +88,10 @@ namespace roboclaw_driver {
     bool writeBytes(const uint8_t* data, size_t len, std::string& err);
     uint8_t readByte(double timeout_sec, std::string& err);
     bool readBytes(uint8_t* dst, size_t len, double timeout_sec, std::string& err);
-    bool commandTxNeedsCRC(uint8_t cmd) const;
-    bool commandRxHasCRC(uint8_t cmd) const;
-    bool sendSimple(uint8_t command, const uint8_t* payload, size_t len, std::string& err);
-    bool sendCrc(uint8_t command, const uint8_t* payload, size_t len, std::string& err);
+    bool sendCommandWrite(uint8_t command, const uint8_t* payload, size_t len, std::string& err);
+    bool sendCommandRead(uint8_t command, std::string& err);
     bool readU16(uint8_t cmd, uint16_t& val, std::string& err);
-    bool readCurrents(uint8_t cmd, uint16_t& m1, uint16_t& m2, std::string& err);
+    bool readCurrents(uint8_t cmd, int16_t& m1, int16_t& m2, std::string& err);
     bool readU32(uint8_t cmd, uint32_t& val, std::string& err);
     bool readU32WithStatus(uint8_t cmd, uint32_t& value, uint8_t& status, std::string& err);
     bool readVelocity(uint8_t cmd, int32_t& vel, std::string& err);

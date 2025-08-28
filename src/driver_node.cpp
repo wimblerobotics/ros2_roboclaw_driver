@@ -172,8 +172,6 @@ namespace roboclaw_driver {
 
     RCLCPP_INFO(this->get_logger(), "=====================================");
 
-    odom_.configure(wheel_radius_, wheel_separation_, pulses_per_rev_ > 0 ? pulses_per_rev_ : 1.0);
-
     // Replace transport/protocol/hardware with direct device
     try {
       roboclaw_dev_ = std::make_unique<RoboClawDevice>(port, baud, static_cast<uint8_t>(addr));
@@ -181,8 +179,11 @@ namespace roboclaw_driver {
       // MANDATORY: Test device communication by reading firmware version first
       std::string version = roboclaw_dev_->version();
       if (version.empty()) {
+        auto diag_tx = roboclaw_dev_->lastTx();
+        auto diag_rx = roboclaw_dev_->lastRx();
         RCLCPP_ERROR(this->get_logger(), "CRITICAL: RoboClaw device failed to respond to version command");
         RCLCPP_ERROR(this->get_logger(), "Check device address (%d), baud rate (%d), and connections", addr, baud);
+        RCLCPP_ERROR(this->get_logger(), "Version diag tx=[%s] rx=[%s]", diag_tx.c_str(), diag_rx.c_str());
         throw std::runtime_error("RoboClaw version check failed - device not responding properly");
       }
 
@@ -236,6 +237,16 @@ namespace roboclaw_driver {
     if (publish_odom_) odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("odom", 10);
     if (publish_joint_)
       joint_pub_ = create_publisher<sensor_msgs::msg::JointState>("joint_states", 10);
+    if (publish_odom_) {
+      double odom_rate = get_parameter(params::kOdomRate).as_double();
+      if (odom_rate > 0) {
+        auto period = std::chrono::duration<double>(1.0 / odom_rate);
+        odom_timer_ = create_wall_timer(std::chrono::duration_cast<std::chrono::milliseconds>(period), std::bind(&DriverNode::odomTimer, this));
+      }
+      odom_frame_ = get_parameter(params::kFrameOdom).as_string();
+      base_frame_ = get_parameter(params::kFrameBase).as_string();
+      last_odom_time_ = nowSec();
+    }
   }
 
   void DriverNode::cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
@@ -288,8 +299,9 @@ namespace roboclaw_driver {
         max_distance_pulses,
         err);
       if (!ok) {
-        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-          "Failed to send buffered drive command: %s", err.c_str());
+        RCLCPP_ERROR(this->get_logger(),
+          "Drive command failed cmd=0x%02X err=%s TX=[%s] RX=[%s]", 46,
+          err.c_str(), roboclaw_dev_->lastTx().c_str(), roboclaw_dev_->lastRx().c_str());
       } else {
         RCLCPP_DEBUG(this->get_logger(),
           "Sent buffered cmd: M1=%d, M2=%d qpps, accel=%u, max_dist=%u pulses",
@@ -306,8 +318,9 @@ namespace roboclaw_driver {
       if (roboclaw_dev_) {
         bool ok = roboclaw_dev_->driveSpeeds(0, 0, err);
         if (!ok) {
-          RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
-            "Failed to send stop command: %s", err.c_str());
+          RCLCPP_ERROR(this->get_logger(),
+            "Stop command failed cmd=0x%02X err=%s TX=[%s] RX=[%s]", 37,
+            err.c_str(), roboclaw_dev_->lastTx().c_str(), roboclaw_dev_->lastRx().c_str());
         }
       }
     }
@@ -326,12 +339,40 @@ namespace roboclaw_driver {
       return;
     }
 
-    // Update EMA current values (simplified - no actual EMA for now)
-    current_ema_m1_ = snap.currents.m1_inst;
+    // Update currents EMA (simple single-pole low-pass if desired later)
+    current_ema_m1_ = snap.currents.m1_inst; // TODO: real EMA
     current_ema_m2_ = snap.currents.m2_inst;
     latest_snapshot_ = snap;
 
-    // Log device data occasionally for debugging
+    // Safety evaluation
+    SafetySample ss; ss.time_now = nowSec(); ss.m1_cmd_qpps = roboclaw_dev_->getLastCommand1(); ss.m2_cmd_qpps = roboclaw_dev_->getLastCommand2(); ss.m1_meas_qpps = snap.m1_enc.speed_qpps; ss.m2_meas_qpps = snap.m2_enc.speed_qpps; ss.m1_current_avg = current_ema_m1_; ss.m2_current_avg = current_ema_m2_; ss.temp1 = snap.temps.t1; ss.temp2 = snap.temps.t2;
+    auto result = safety_.evaluate(ss);
+    if (result.estop) {
+      // Issue stop immediately
+      std::string e2; roboclaw_dev_->driveSpeeds(0, 0, e2);
+      if (!estop_mgr_.hasAny()) estop_mgr_.set(result.source, result.reason);
+    }
+
+    // Joint state update based on encoder snapshot if publishing enabled
+    if (publish_joint_ && joint_pub_ && pulses_per_rev_ > 0) {
+      sensor_msgs::msg::JointState js; js.header.stamp = now();
+      std::string left_name = get_parameter(params::kLeftJointName).as_string();
+      std::string right_name = get_parameter(params::kRightJointName).as_string();
+      js.name = { left_name, right_name };
+      double rev_per_pulse = 1.0 / pulses_per_rev_;
+      // Convert absolute encoder counts (snap.m1_enc.value etc.) to wheel rotations (rev)
+      double left_rev = static_cast<int32_t>(snap.m1_enc.value) * rev_per_pulse;
+      double right_rev = static_cast<int32_t>(snap.m2_enc.value) * rev_per_pulse;
+      js.position = { left_rev * 2.0 * M_PI, right_rev * 2.0 * M_PI }; // radians
+      // Velocity in qpps -> rev/s -> rad/s (qpps counts per second). Need pulses per revolution.
+      if (pulses_per_rev_ > 0) {
+        double left_rad_s = (snap.m1_enc.speed_qpps / pulses_per_rev_) * 2.0 * M_PI;
+        double right_rad_s = (snap.m2_enc.speed_qpps / pulses_per_rev_) * 2.0 * M_PI;
+        js.velocity = { left_rad_s, right_rad_s };
+      }
+      joint_pub_->publish(js);
+    }
+
     RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
       "RoboClaw data - M1 enc: %u, M2 enc: %u, Main V: %.1f, Logic V: %.1f",
       snap.m1_enc.value, snap.m2_enc.value, snap.volts.main, snap.volts.logic);
@@ -350,7 +391,7 @@ namespace roboclaw_driver {
     msg.m1_speed_measured = snap.m1_enc.speed_qpps;
     msg.m1_current_instant = snap.currents.m1_inst;
     msg.m1_current_avg = current_ema_m1_; // Use the EMA value
-    msg.m1_encoder_value = static_cast<uint32_t>(snap.m1_enc.value & 0xFFFFFFFF);
+    msg.m1_encoder_value = snap.m1_enc.value;
     msg.m1_encoder_status = snap.m1_enc.status;
 
     // Motor 2 data
@@ -362,7 +403,7 @@ namespace roboclaw_driver {
     msg.m2_speed_measured = snap.m2_enc.speed_qpps;
     msg.m2_current_instant = snap.currents.m2_inst;
     msg.m2_current_avg = current_ema_m2_; // Use the EMA value
-    msg.m2_encoder_value = static_cast<uint32_t>(snap.m2_enc.value & 0xFFFFFFFF);
+    msg.m2_encoder_value = snap.m2_enc.value;
     msg.m2_encoder_status = snap.m2_enc.status;
 
     // Board electrical & thermal
@@ -377,16 +418,14 @@ namespace roboclaw_driver {
 
     // Safety & estop (assuming these are managed elsewhere)
     msg.safety_enabled = get_parameter(params::kSafetyEnabled).as_bool();
-    msg.safety_state = 0; // TODO: Get actual safety state
+    msg.safety_state = estop_mgr_.hasAny() ? 2 : 0;
     msg.active_estop_sources = estop_mgr_.activeSources();
-    msg.estop_reasons = {}; // TODO: Get estop reasons if available
+    msg.estop_reasons = {}; // Could populate from manager if tracked
 
     // Driver health & statistics
-    msg.crc_error_count = 0; // TODO: Track CRC errors
-    msg.io_error_count = 0; // TODO: Track I/O errors
-    msg.retry_count = 0; // TODO: Track retry attempts
+    msg.crc_error_count = 0; msg.io_error_count = 0; msg.retry_count = 0; // TODO wire counters
     msg.last_command_age = nowSec() - last_cmd_time_;
-    msg.avg_loop_period = 0.0; // TODO: Calculate loop period if needed
+    msg.avg_loop_period = avg_loop_period_sec_;
 
     // Timestamp
     msg.stamp = now();
@@ -566,8 +605,9 @@ namespace roboclaw_driver {
         break;
       }
     }
-    if (res.successful && reconfig_odom)
-      odom_.configure(wheel_radius_, wheel_separation_, pulses_per_rev_ > 0 ? pulses_per_rev_ : 1.0);
+    if (res.successful && reconfig_odom) {
+      // (No separate odometry object to reconfigure currently.)
+    }
     if (res.successful && safety_reconfig) {
       SafetyConfig cfg;
       cfg.enabled = get_parameter(params::kSafetyEnabled).as_bool();

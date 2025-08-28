@@ -1,0 +1,1 @@
+Removed unused empty legacy files: protocol.cpp/.hpp, transport.cpp/.hpp, hardware_interface.cpp/.hpp, roboclaw_device_formatted.cpp. Update CMakeLists accordingly.

@@ -11,7 +11,6 @@
 #include <sensor_msgs/msg/joint_state.hpp>
 
 #include "roboclaw_driver/estop_manager.hpp"
-#include "roboclaw_driver/odometry_integrator.hpp"
 #include "roboclaw_driver/safety_supervisor.hpp"
 #include "roboclaw_driver/status_decoder.hpp"
 #include "roboclaw_driver/roboclaw_device.hpp"
@@ -52,7 +51,6 @@ namespace roboclaw_driver {
         double last_cmd_time_{ 0 };
         std::unique_ptr<RoboClawDevice> roboclaw_dev_;
         StatusDecoder status_decoder_;
-        OdometryIntegrator odom_;
         EStopManager estop_mgr_;
         SafetySupervisor safety_;
         std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
@@ -72,6 +70,13 @@ namespace roboclaw_driver {
         double current_ema_m2_{ 0.0 };
         double avg_loop_period_sec_{ 0.0 };
         Snapshot latest_snapshot_{};
+        // Odometry state
+        double x_{ 0.0 };
+        double y_{ 0.0 };
+        double yaw_{ 0.0 };
+        double last_odom_time_{ 0.0 };
+        std::string odom_frame_{ "odom" };
+        std::string base_frame_{ "base_link" };
         rclcpp::Service<ros2_roboclaw_driver::srv::ResetEncoders>::SharedPtr reset_enc_srv_;
         rclcpp::Service<ros2_roboclaw_driver::srv::ClearAllEStops>::SharedPtr clear_all_estops_srv_;
         rclcpp::Service<ros2_roboclaw_driver::srv::ClearEStopSource>::SharedPtr clear_estop_source_srv_;
