@@ -1,29 +1,10 @@
-/**
- * @file driver_node.cpp
- * @brief RoboClaw motor controller driver node implementation
- *
- * This file implements the main ROS 2 node for interfacing with RoboClaw motor controllers.
- * The driver provides velocity control, status monitoring, safety supervision, and diagnostic
- * capabilities for differential drive robots using RoboClaw motor controllers.
- *
- * Key Features:
- * - Direct serial communication with RoboClaw devices
- * - Real-time velocity command processing with acceleration shaping
- * - Comprehensive status monitoring and diagnostics
- * - Safety supervision with emergency stop capabilities
- * - Odometry integration and transform broadcasting
- * - Dynamic parameter reconfiguration
- *
- * @author Michael Wimble <mike@wimblerobotics.com>
- * @license MIT License
- */
-
- // MIT License
- // Author: Michael Wimble <mike@wimblerobotics.com>
+// MIT License
+// Author: Michael Wimble <mike@wimblerobotics.com>
 #include "roboclaw_driver/driver_node.hpp"
 
 #include <tf2/LinearMath/Quaternion.h>
 
+#include <algorithm>
 #include <chrono>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
@@ -37,20 +18,9 @@
 namespace roboclaw_driver {
 
   namespace {
-    /** @brief Utility function to get current time in seconds since epoch */
     inline double nowSec() { return rclcpp::Clock().now().seconds(); }
   }  // namespace
 
-  /**
-   * @brief Constructor for the RoboClaw driver node
-   *
-   * Initializes the ROS 2 node with comprehensive parameter declarations, object initialization,
-   * publisher/subscriber setup, service registration, and timer configuration. The constructor
-   * ensures proper device communication before allowing the node to become operational.
-   *
-   * @param opts ROS 2 node options for configuration
-   * @throws std::runtime_error if RoboClaw device initialization fails
-   */
   DriverNode::DriverNode(const rclcpp::NodeOptions& opts) : rclcpp::Node("roboclaw_driver", opts) {
     declareParameters();
     initObjects();
@@ -83,18 +53,6 @@ namespace roboclaw_driver {
     }
   }
 
-  /**
-   * @brief Declares all ROS 2 parameters with default values and validation ranges
-   *
-   * This method defines the complete parameter interface for the RoboClaw driver, including:
-   * - Device communication parameters (port, baud rate, address)
-   * - Motion control parameters (acceleration, velocity limits, timeouts)
-   * - Physical robot parameters (wheel dimensions, encoder scaling)
-   * - Safety and monitoring parameters (current limits, temperature thresholds)
-   * - Publishing options (odometry, joint states, transforms)
-   *
-   * All parameters include appropriate default values and will be validated during runtime.
-   */
   void DriverNode::declareParameters() {
     using namespace params;
     params::Defaults d;
@@ -105,6 +63,17 @@ namespace roboclaw_driver {
     declare_parameter<double>(kMaxLinearVel, d.max_linear_vel);
     declare_parameter<double>(kMaxAngularVel, d.max_angular_vel);
     declare_parameter<double>(kCmdTimeout, d.cmd_timeout);
+    // Motor PID and QPPS parameters
+    declare_parameter<double>(kM1P, 7.26239);
+    declare_parameter<double>(kM1I, 2.43);
+    declare_parameter<double>(kM1D, 0.0);
+    declare_parameter<int>(kM1QPPS, 2437);
+    declare_parameter<double>(kM2P, 7.26239);
+    declare_parameter<double>(kM2I, 1.28767);
+    declare_parameter<double>(kM2D, 0.0);
+    declare_parameter<int>(kM2QPPS, 2437);
+    declare_parameter<double>(kM1MaxCurrent, 6.0);
+    declare_parameter<double>(kM2MaxCurrent, 6.0);
     declare_parameter<bool>(kPublishOdom, d.publish_odom);
     declare_parameter<bool>(kPublishJointStates, d.publish_joint_states);
     declare_parameter<bool>(kPublishTF, d.publish_tf);
@@ -144,79 +113,124 @@ namespace roboclaw_driver {
     declare_parameter<double>(params::kOdomAngularCov, d.odom_angular_cov);
   }
 
-  /**
-   * @brief Initializes all driver objects and establishes device communication
-   *
-   * This critical initialization method:
-   * 1. Retrieves and validates all configuration parameters
-   * 2. Configures motion control algorithms (command shaping, odometry)
-   * 3. Establishes communication with the RoboClaw device
-   * 4. Verifies device responsiveness through firmware version check
-   * 5. Sets up publishers for optional data streams (odometry, joint states)
-   *
-   * The method implements fail-fast behavior - any communication failure will
-   * prevent the node from becoming operational, ensuring system safety.
-   *
-   * @throws std::runtime_error if device initialization or communication fails
-   */
   void DriverNode::initObjects() {
+    // Log all configuration parameters for debugging
+    RCLCPP_INFO(this->get_logger(), "=== RoboClaw Driver Configuration ===");
+
+    // Device configuration
     std::string port = get_parameter(params::kPort).as_string();
     int baud = get_parameter(params::kBaudRate).as_int();
     int addr = get_parameter(params::kDeviceAddress).as_int();
-    double accel = get_parameter(params::kAccelQpps).as_double();
+    RCLCPP_INFO(this->get_logger(), "Device: port=%s, baud=%d, address=%d", port.c_str(), baud, addr);
 
-    RCLCPP_INFO(this->get_logger(), "Initializing RoboClaw driver with parameters:");
-    RCLCPP_INFO(this->get_logger(), "  Port: %s", port.c_str());
-    RCLCPP_INFO(this->get_logger(), "  Baud Rate: %d", baud);
-    RCLCPP_INFO(this->get_logger(), "  Device Address: %d", addr);
-    RCLCPP_INFO(this->get_logger(), "  Acceleration: %.1f qpps/s", accel);
+    // Motion parameters
+    double accel_qpps = get_parameter(params::kAccelQpps).as_double();
+    double max_linear = get_parameter(params::kMaxLinearVel).as_double();
+    double max_angular = get_parameter(params::kMaxAngularVel).as_double();
+    double cmd_timeout = get_parameter(params::kCmdTimeout).as_double();
+    RCLCPP_INFO(this->get_logger(), "Motion: accel=%.1f qpps, max_linear=%.3f m/s, max_angular=%.3f rad/s, timeout=%.3f s",
+      accel_qpps, max_linear, max_angular, cmd_timeout);
 
+    // PID parameters
+    double m1_p = get_parameter(params::kM1P).as_double();
+    double m1_i = get_parameter(params::kM1I).as_double();
+    double m1_d = get_parameter(params::kM1D).as_double();
+    int m1_qpps = get_parameter(params::kM1QPPS).as_int();
+    double m2_p = get_parameter(params::kM2P).as_double();
+    double m2_i = get_parameter(params::kM2I).as_double();
+    double m2_d = get_parameter(params::kM2D).as_double();
+    int m2_qpps = get_parameter(params::kM2QPPS).as_int();
+    RCLCPP_INFO(this->get_logger(), "M1 PID: P=%.5f, I=%.5f, D=%.5f, QPPS=%d", m1_p, m1_i, m1_d, m1_qpps);
+    RCLCPP_INFO(this->get_logger(), "M2 PID: P=%.5f, I=%.5f, D=%.5f, QPPS=%d", m2_p, m2_i, m2_d, m2_qpps);
+
+    // Physical parameters
     wheel_radius_ = get_parameter(params::kWheelRadius).as_double();
     wheel_separation_ = get_parameter(params::kWheelSeparation).as_double();
+    pulses_per_meter_ = get_parameter(params::kQuadPulsesPerMeter).as_int();
+    pulses_per_rev_ = get_parameter(params::kQuadPulsesPerRev).as_double();
+    RCLCPP_INFO(this->get_logger(), "Robot: wheel_radius=%.5f m, wheel_sep=%.3f m", wheel_radius_, wheel_separation_);
+    RCLCPP_INFO(this->get_logger(), "Encoder scaling: %d pulses/meter, %.2f pulses/revolution", pulses_per_meter_, pulses_per_rev_);
+
+    // Publishing configuration
     publish_odom_ = get_parameter(params::kPublishOdom).as_bool();
     publish_joint_ = get_parameter(params::kPublishJointStates).as_bool();
     publish_tf_ = get_parameter(params::kPublishTF).as_bool();
-    pulses_per_meter_ = get_parameter(params::kQuadPulsesPerMeter).as_int();
-    pulses_per_rev_ = get_parameter(params::kQuadPulsesPerRev).as_double();
-    double cmd_timeout = get_parameter(params::kCmdTimeout).as_double();
+    double sensor_rate = get_parameter(params::kSensorPollRate).as_double();
+    double status_rate = get_parameter(params::kStatusRate).as_double();
+    double odom_rate = get_parameter(params::kOdomRate).as_double();
+    RCLCPP_INFO(this->get_logger(), "Publishing: odom=%s, joints=%s, tf=%s",
+      publish_odom_ ? "yes" : "no", publish_joint_ ? "yes" : "no", publish_tf_ ? "yes" : "no");
+    RCLCPP_INFO(this->get_logger(), "Rates: sensor=%.1f Hz, status=%.1f Hz, odom=%.1f Hz",
+      sensor_rate, status_rate, odom_rate);
 
-    RCLCPP_INFO(this->get_logger(), "  Wheel radius: %.3f m", wheel_radius_);
-    RCLCPP_INFO(this->get_logger(), "  Wheel separation: %.3f m", wheel_separation_);
-    RCLCPP_INFO(this->get_logger(), "  Pulses per meter: %d", pulses_per_meter_);
-    RCLCPP_INFO(this->get_logger(), "  Pulses per revolution: %.1f", pulses_per_rev_);
-    RCLCPP_INFO(this->get_logger(), "  Command timeout: %.1f s", cmd_timeout);
-    RCLCPP_INFO(this->get_logger(), "  Publish odom: %s", publish_odom_ ? "true" : "false");
-    RCLCPP_INFO(this->get_logger(), "  Publish joint states: %s", publish_joint_ ? "true" : "false");
-    RCLCPP_INFO(this->get_logger(), "  Publish TF: %s", publish_tf_ ? "true" : "false");
+    // Safety configuration
+    bool safety_enabled = get_parameter(params::kSafetyEnabled).as_bool();
+    double m1_max_current = get_parameter(params::kM1MaxCurrent).as_double();
+    double m2_max_current = get_parameter(params::kM2MaxCurrent).as_double();
+    RCLCPP_INFO(this->get_logger(), "Safety: enabled=%s, M1_max_current=%.1fA, M2_max_current=%.1fA",
+      safety_enabled ? "yes" : "no", m1_max_current, m2_max_current);
 
-    command_shaper_.configure(accel);
+    RCLCPP_INFO(this->get_logger(), "=====================================");
+
     odom_.configure(wheel_radius_, wheel_separation_, pulses_per_rev_ > 0 ? pulses_per_rev_ : 1.0);
 
-    // Initialize RoboClaw device with comprehensive error checking
+    // Replace transport/protocol/hardware with direct device
     try {
-      RCLCPP_INFO(this->get_logger(), "Attempting to connect to RoboClaw device...");
       roboclaw_dev_ = std::make_unique<RoboClawDevice>(port, baud, static_cast<uint8_t>(addr));
 
-      if (!roboclaw_dev_->isInitialized()) {
-        RCLCPP_FATAL(this->get_logger(), "RoboClaw device failed initialization!");
-        throw std::runtime_error("RoboClaw device not properly initialized");
+      // MANDATORY: Test device communication by reading firmware version first
+      std::string version = roboclaw_dev_->version();
+      if (version.empty()) {
+        RCLCPP_ERROR(this->get_logger(), "CRITICAL: RoboClaw device failed to respond to version command");
+        RCLCPP_ERROR(this->get_logger(), "Check device address (%d), baud rate (%d), and connections", addr, baud);
+        throw std::runtime_error("RoboClaw version check failed - device not responding properly");
       }
 
-      // Device is confirmed working - test firmware version
-      std::string version = roboclaw_dev_->version();
-      RCLCPP_INFO(this->get_logger(), "✓ RoboClaw device connected successfully!");
-      RCLCPP_INFO(this->get_logger(), "✓ Firmware version: %s", version.c_str());
-      RCLCPP_INFO(this->get_logger(), "✓ Device ready for operation");
+      RCLCPP_INFO(this->get_logger(), "RoboClaw device connected successfully!");
+      RCLCPP_INFO(this->get_logger(), "  Firmware version: %s", version.c_str());
+
+      // Initialize motor PID and QPPS settings
+      std::string err;
+      RCLCPP_INFO(this->get_logger(), "Setting motor PID parameters...");
+
+      if (!roboclaw_dev_->setPID(1, m1_p, m1_i, m1_d, static_cast<uint32_t>(m1_qpps), err)) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to set M1 PID parameters: %s", err.c_str());
+        throw std::runtime_error("Failed to configure M1 PID settings");
+      }
+
+      if (!roboclaw_dev_->setPID(2, m2_p, m2_i, m2_d, static_cast<uint32_t>(m2_qpps), err)) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to set M2 PID parameters: %s", err.c_str());
+        throw std::runtime_error("Failed to configure M2 PID settings");
+      }
+
+      RCLCPP_INFO(this->get_logger(), "Motor PID parameters configured successfully");
+
+      // Reset encoders to clear any random initial values
+      if (!roboclaw_dev_->resetEncoders(err)) {
+        RCLCPP_WARN(this->get_logger(), "Failed to reset encoders: %s", err.c_str());
+      } else {
+        RCLCPP_INFO(this->get_logger(), "Encoders reset to zero");
+      }
+
+      // Capture initial device state for safety systems
+      Snapshot initial_snap{};
+      if (roboclaw_dev_->readSnapshot(initial_snap, err)) {
+        RCLCPP_INFO(this->get_logger(), "Initial device state captured:");
+        RCLCPP_INFO(this->get_logger(), "  M1 encoder: %u, M2 encoder: %u",
+          initial_snap.m1_enc.value, initial_snap.m2_enc.value);
+        RCLCPP_INFO(this->get_logger(), "  Main voltage: %.1fV, Logic voltage: %.1fV",
+          initial_snap.volts.main, initial_snap.volts.logic);
+        RCLCPP_INFO(this->get_logger(), "  Temperature1: %.1f°C, Temperature2: %.1f°C",
+          initial_snap.temps.t1, initial_snap.temps.t2);
+        RCLCPP_INFO(this->get_logger(), "  Status bits: 0x%08X", initial_snap.status_bits);
+      } else {
+        RCLCPP_WARN(this->get_logger(), "Failed to read initial device state: %s", err.c_str());
+      }
 
     } catch (const std::exception& e) {
-      RCLCPP_FATAL(this->get_logger(), "Critical error initializing RoboClaw device: %s", e.what());
-      RCLCPP_FATAL(this->get_logger(), "Driver cannot continue - check:");
-      RCLCPP_FATAL(this->get_logger(), "  1. Device path: %s", port.c_str());
-      RCLCPP_FATAL(this->get_logger(), "  2. Baud rate: %d", baud);
-      RCLCPP_FATAL(this->get_logger(), "  3. Device address: %d", addr);
-      RCLCPP_FATAL(this->get_logger(), "  4. Physical connections and power");
+      RCLCPP_ERROR(this->get_logger(), "Failed to initialize RoboClaw device: %s", e.what());
       roboclaw_dev_.reset();
-      throw;  // Re-throw to prevent node from starting
+      throw; // Re-throw to prevent node from starting with invalid device
     }
 
     if (publish_odom_) odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("odom", 10);
@@ -224,68 +238,66 @@ namespace roboclaw_driver {
       joint_pub_ = create_publisher<sensor_msgs::msg::JointState>("joint_states", 10);
   }
 
-  /**
-   * @brief Processes incoming velocity commands and translates them to motor speeds
-   *
-   * This callback handles cmd_vel messages by:
-   * 1. Converting linear/angular velocities to differential wheel velocities
-   * 2. Scaling wheel velocities to encoder pulses per second (QPPS)
-   * 3. Applying acceleration shaping to ensure smooth motion
-   * 4. Transmitting motor speed commands to the RoboClaw device
-   * 5. Updating command timestamps for timeout monitoring
-   *
-   * The method implements the standard differential drive kinematic model:
-   * - Left wheel velocity = linear_velocity - angular_velocity * wheel_separation / 2
-   * - Right wheel velocity = linear_velocity + angular_velocity * wheel_separation / 2
-   *
-   * @param msg Incoming Twist message containing linear and angular velocity commands
-   */
   void DriverNode::cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
     last_cmd_time_ = nowSec();
     double v = msg->linear.x;
     double w = msg->angular.z;
+
+    // Apply velocity limits
+    double max_linear = get_parameter(params::kMaxLinearVel).as_double();
+    double max_angular = get_parameter(params::kMaxAngularVel).as_double();
+    v = std::clamp(v, -max_linear, max_linear);
+    w = std::clamp(w, -max_angular, max_angular);
+
     double v_left = v - w * wheel_separation_ / 2.0;
     double v_right = v + w * wheel_separation_ / 2.0;
-    int32_t m1_qpps = 0; int32_t m2_qpps = 0;
+    int32_t m1_qpps = 0;
+    int32_t m2_qpps = 0;
     if (pulses_per_meter_ > 0) {
       m1_qpps = static_cast<int32_t>(v_left * pulses_per_meter_);
       m2_qpps = static_cast<int32_t>(v_right * pulses_per_meter_);
     }
-    command_shaper_.update(m1_qpps, m2_qpps);
 
-    RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-      "cmd_vel: v=%.3f, w=%.3f -> v_left=%.3f, v_right=%.3f -> m1=%d, m2=%d qpps -> shaped: m1=%d, m2=%d qpps",
-      v, w, v_left, v_right, m1_qpps, m2_qpps,
-      command_shaper_.shapedM1(), command_shaper_.shapedM2());
+    // Calculate maximum safe distance based on timeout and current speed
+    double cmd_timeout = get_parameter(params::kCmdTimeout).as_double();
+    double accel_qpps = get_parameter(params::kAccelQpps).as_double();
 
+    // Calculate maximum distance robot can travel in timeout period
+    // Distance = current_speed * time + 0.5 * accel * time^2 (assuming deceleration to stop)
+    double max_speed_mps = std::max(std::abs(v_left), std::abs(v_right));
+    uint32_t max_distance_pulses = 0;
+    if (pulses_per_meter_ > 0 && max_speed_mps > 0) {
+      // Distance to stop: v²/(2*a) + safety margin
+      double stopping_distance = (max_speed_mps * max_speed_mps) / (2.0 * (accel_qpps / pulses_per_meter_));
+      // Add distance for timeout period
+      double timeout_distance = max_speed_mps * cmd_timeout;
+      max_distance_pulses = static_cast<uint32_t>((stopping_distance + timeout_distance) * pulses_per_meter_);
+    }
+
+    // Minimum reasonable distance to prevent immediate stops
+    if (max_distance_pulses < 100) {
+      max_distance_pulses = 100;
+    }
+
+    // Send buffered command with distance limiting for safety
     std::string err;
     if (roboclaw_dev_) {
-      bool ok = roboclaw_dev_->driveSpeeds(command_shaper_.shapedM1(), command_shaper_.shapedM2(), err);
+      bool ok = roboclaw_dev_->driveSpeedsAccelDistance(
+        m1_qpps, m2_qpps,
+        static_cast<uint32_t>(accel_qpps),
+        max_distance_pulses,
+        err);
       if (!ok) {
         RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-          "Failed to send drive speeds: %s", err.c_str());
+          "Failed to send buffered drive command: %s", err.c_str());
+      } else {
+        RCLCPP_DEBUG(this->get_logger(),
+          "Sent buffered cmd: M1=%d, M2=%d qpps, accel=%u, max_dist=%u pulses",
+          m1_qpps, m2_qpps, static_cast<uint32_t>(accel_qpps), max_distance_pulses);
       }
     }
   }
 
-  /**
-   * @brief High-frequency sensor data acquisition and safety monitoring
-   *
-   * This timer callback runs at 20Hz (50ms intervals) and performs:
-   * 1. Command timeout monitoring - stops motors if no recent cmd_vel received
-   * 2. Comprehensive device state reading (encoders, currents, voltages, temperatures)
-   * 3. Exponential moving average calculation for current smoothing
-   * 4. Real-time safety monitoring and fault detection
-   * 5. Diagnostic logging for debugging and system monitoring
-   *
-   * The high update rate ensures responsive safety monitoring while providing
-   * smooth data for control algorithms and state estimation.
-   *
-   * Error Handling:
-   * - Communication timeouts are logged but don't stop the timer
-   * - Device errors are reported through throttled warnings
-   * - Safety violations trigger immediate motor stops
-   */
   void DriverNode::sensorTimer() {
     double age = nowSec() - last_cmd_time_;
     double timeout = get_parameter(params::kCmdTimeout).as_double();
@@ -307,10 +319,6 @@ namespace roboclaw_driver {
       return;
     }
 
-    RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-      "sensorTimer: Attempting to read RoboClaw snapshot from device at address %d",
-      (int)get_parameter(params::kDeviceAddress).as_int());
-
     Snapshot snap{};
     if (!roboclaw_dev_->readSnapshot(snap, err)) {
       RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
@@ -325,82 +333,65 @@ namespace roboclaw_driver {
 
     // Log device data occasionally for debugging
     RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
-      "RoboClaw data - M1 enc: %u speed: %d, M2 enc: %u speed: %d, Main V: %.1f, Logic V: %.1f, T1: %.1f, T2: %.1f",
-      snap.m1_enc.value, snap.m1_enc.speed_qpps, snap.m2_enc.value, snap.m2_enc.speed_qpps,
-      snap.volts.main, snap.volts.logic, snap.temps.t1, snap.temps.t2);
+      "RoboClaw data - M1 enc: %u, M2 enc: %u, Main V: %.1f, Logic V: %.1f",
+      snap.m1_enc.value, snap.m2_enc.value, snap.volts.main, snap.volts.logic);
   }
 
-  /**
-   * @brief Publishes comprehensive RoboClaw status information
-   *
-   * This timer callback runs at 1Hz and publishes detailed status information
-   * including motor states, electrical readings, thermal data, error conditions,
-   * and driver health statistics.
-   */
   void DriverNode::statusTimer() {
     auto snap = latest_snapshot_;
     ros2_roboclaw_driver::msg::RoboClawStatus msg;
 
-    // Motor 1 PID configuration and status
-    msg.m1_p = 0.0; // TODO: Implement PID reading when needed
-    msg.m1_i = 0.0; // TODO: Implement PID reading when needed  
-    msg.m1_d = 0.0; // TODO: Implement PID reading when needed
-    msg.m1_qpps = 0; // TODO: Implement QPPS reading when needed
+    // Motor 1 data
+    msg.m1_p = snap.m1_pid.p;
+    msg.m1_i = snap.m1_pid.i;
+    msg.m1_d = snap.m1_pid.d;
+    msg.m1_qpps = snap.m1_pid.qpps;
     msg.m1_speed_command = roboclaw_dev_ ? roboclaw_dev_->getLastCommand1() : 0;
     msg.m1_speed_measured = snap.m1_enc.speed_qpps;
     msg.m1_current_instant = snap.currents.m1_inst;
-    msg.m1_current_avg = current_ema_m1_;
+    msg.m1_current_avg = current_ema_m1_; // Use the EMA value
     msg.m1_encoder_value = static_cast<uint32_t>(snap.m1_enc.value & 0xFFFFFFFF);
     msg.m1_encoder_status = snap.m1_enc.status;
 
-    // Motor 2 PID configuration and status  
-    msg.m2_p = 0.0; // TODO: Implement PID reading when needed
-    msg.m2_i = 0.0; // TODO: Implement PID reading when needed
-    msg.m2_d = 0.0; // TODO: Implement PID reading when needed
-    msg.m2_qpps = 0; // TODO: Implement QPPS reading when needed
+    // Motor 2 data
+    msg.m2_p = snap.m2_pid.p;
+    msg.m2_i = snap.m2_pid.i;
+    msg.m2_d = snap.m2_pid.d;
+    msg.m2_qpps = snap.m2_pid.qpps;
     msg.m2_speed_command = roboclaw_dev_ ? roboclaw_dev_->getLastCommand2() : 0;
     msg.m2_speed_measured = snap.m2_enc.speed_qpps;
     msg.m2_current_instant = snap.currents.m2_inst;
-    msg.m2_current_avg = current_ema_m2_;
+    msg.m2_current_avg = current_ema_m2_; // Use the EMA value
     msg.m2_encoder_value = static_cast<uint32_t>(snap.m2_enc.value & 0xFFFFFFFF);
     msg.m2_encoder_status = snap.m2_enc.status;
 
-    // Electrical and thermal monitoring
+    // Board electrical & thermal
     msg.main_battery_voltage = snap.volts.main;
     msg.logic_battery_voltage = snap.volts.logic;
     msg.temperature1 = snap.temps.t1;
     msg.temperature2 = snap.temps.t2;
 
-    // Error status and diagnostics
+    // Error reporting
     msg.error_bits = snap.status_bits;
-    msg.error_json = status_decoder_.toJson(snap.status_bits);
+    msg.error_json = ""; // TODO: Decode error bits to JSON if needed
 
-    // Safety system status
+    // Safety & estop (assuming these are managed elsewhere)
     msg.safety_enabled = get_parameter(params::kSafetyEnabled).as_bool();
-    msg.safety_state = 0; // TODO: Implement safety state tracking when needed
+    msg.safety_state = 0; // TODO: Get actual safety state
     msg.active_estop_sources = estop_mgr_.activeSources();
-    msg.estop_reasons = {}; // TODO: Implement detailed estop reasons when needed
+    msg.estop_reasons = {}; // TODO: Get estop reasons if available
 
-    // Driver health and performance metrics
-    msg.crc_error_count = 0; // TODO: Implement error tracking when needed
-    msg.io_error_count = 0; // TODO: Implement error tracking when needed
-    msg.retry_count = 0; // TODO: Implement retry tracking when needed
+    // Driver health & statistics
+    msg.crc_error_count = 0; // TODO: Track CRC errors
+    msg.io_error_count = 0; // TODO: Track I/O errors
+    msg.retry_count = 0; // TODO: Track retry attempts
     msg.last_command_age = nowSec() - last_cmd_time_;
-    msg.avg_loop_period = 0.0; // TODO: Implement loop period calculation when needed
+    msg.avg_loop_period = 0.0; // TODO: Calculate loop period if needed
 
-    // Message timestamp
+    // Timestamp
     msg.stamp = now();
 
-    // Publish comprehensive status
     status_pub_->publish(msg);
-
-    // Log critical status occasionally for monitoring
-    RCLCPP_DEBUG_THROTTLE(this->get_logger(), *this->get_clock(), 10000,
-      "Status: M1[cmd=%d,meas=%d,cur=%.1fA] M2[cmd=%d,meas=%d,cur=%.1fA] V[main=%.1f,logic=%.1f] T[%.1f,%.1f] err=0x%x",
-      msg.m1_speed_command, msg.m1_speed_measured, msg.m1_current_instant,
-      msg.m2_speed_command, msg.m2_speed_measured, msg.m2_current_instant,
-      msg.main_battery_voltage, msg.logic_battery_voltage,
-      msg.temperature1, msg.temperature2, msg.error_bits);
   }
 
   void DriverNode::odomTimer() {}
@@ -455,7 +446,8 @@ namespace roboclaw_driver {
             res.reason = "accel must be > 0";
             break;
           }
-          command_shaper_.configure(v);
+          // Acceleration parameter validated but no longer used for command shaping
+          // (let nav2 handle acceleration, we use this for safety distance calculations)
         } else if (name == params::kWheelRadius) {
           double v = p.as_double();
           if (v <= 0 || v > 1.0) {

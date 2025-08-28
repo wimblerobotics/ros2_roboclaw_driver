@@ -28,85 +28,38 @@ namespace roboclaw_driver {
     float t2 = 0.0f;
   };
 
+  struct PIDSnapshot {
+    float p = 0.0f;
+    float i = 0.0f;
+    float d = 0.0f;
+    uint32_t qpps = 0;
+  };
+
   struct Snapshot {
     EncoderSnapshot m1_enc;
     EncoderSnapshot m2_enc;
     VoltageSnapshot volts;
     CurrentSnapshot currents;
     TemperatureSnapshot temps;
+    PIDSnapshot m1_pid;
+    PIDSnapshot m2_pid;
     uint32_t status_bits = 0;
   };
 
-  /**
-   * @brief RoboClaw motor controller device interface
-   *
-   * Provides direct communication with RoboClaw motor controllers over serial.
-   * Replaces the previous multi-layer abstraction (transport/protocol/hardware).
-   */
   class RoboClawDevice {
   public:
-    /**
-     * @brief Construct and initialize RoboClaw device
-     * @param device Serial device path (e.g., "/dev/ttyACM0")
-     * @param baud_rate Communication baud rate
-     * @param address RoboClaw device address (0-127)
-     * @throws std::runtime_error if device cannot be opened or initialized
-     */
     RoboClawDevice(const std::string& device, int baud_rate, uint8_t address);
     ~RoboClawDevice();
 
-    /**
-     * @brief Check if device is properly initialized and communicating
-     * @return true if device responded to firmware version request
-     */
-    bool isInitialized() const { return initialized_; }
-
-    /**
-     * @brief Read comprehensive device status snapshot
-     * @param out Output snapshot structure to populate
-     * @param err Error message if operation fails
-     * @return true on success, false on error
-     */
     bool readSnapshot(Snapshot& out, std::string& err);
-
-    /**
-     * @brief Command motor speeds in quadrature pulses per second
-     * @param m1_qpps Motor 1 speed in QPPS (positive = forward)
-     * @param m2_qpps Motor 2 speed in QPPS (positive = forward)
-     * @param err Error message if operation fails
-     * @return true on success, false on error
-     */
     bool driveSpeeds(int32_t m1_qpps, int32_t m2_qpps, std::string& err);
-
-    /**
-     * @brief Configure PID parameters for specified motor
-     * @param motor Motor number (1 or 2)
-     * @param p Proportional gain
-     * @param i Integral gain
-     * @param d Derivative gain
-     * @param qpps Maximum quadrature pulses per second
-     * @param err Error message if operation fails
-     * @return true on success, false on error
-     */
+    bool driveSpeedsAccelDistance(int32_t m1_qpps, int32_t m2_qpps, uint32_t accel, uint32_t distance, std::string& err);
     bool setPID(int motor, float p, float i, float d, uint32_t qpps, std::string& err);
-
-    /**
-     * @brief Reset encoder counts to zero for both motors
-     * @param err Error message if operation fails
-     * @return true on success, false on error
-     */
+    bool readPID(int motor, PIDSnapshot& pid_out, std::string& err);
     bool resetEncoders(std::string& err);
-
-    /**
-     * @brief Read firmware version string from device
-     * @return Firmware version string, empty if communication failed
-     */
     std::string version();
 
-    /** @brief Get last commanded speed for motor 1 */
     int32_t getLastCommand1() const { return last_cmd_m1_; }
-
-    /** @brief Get last commanded speed for motor 2 */
     int32_t getLastCommand2() const { return last_cmd_m2_; }
 
   private:
@@ -114,12 +67,12 @@ namespace roboclaw_driver {
     int baud_;
     uint8_t addr_;
     int fd_ = -1;
-    bool initialized_ = false;  ///< True if device communication verified
     int32_t last_cmd_m1_ = 0;
     int32_t last_cmd_m2_ = 0;
 
     bool openPort(std::string& err);
     void updateCrc(uint16_t& crc, uint8_t byte);
+    void flush();
     bool writeBytes(const uint8_t* data, size_t len, std::string& err);
     uint8_t readByte(double timeout_sec, std::string& err);
     bool readBytes(uint8_t* dst, size_t len, double timeout_sec, std::string& err);
@@ -132,6 +85,7 @@ namespace roboclaw_driver {
     bool readU32(uint8_t cmd, uint32_t& val, std::string& err);
     bool readU32WithStatus(uint8_t cmd, uint32_t& value, uint8_t& status, std::string& err);
     bool readVelocity(uint8_t cmd, int32_t& vel, std::string& err);
+    bool read4Values(uint8_t cmd, uint32_t& val1, uint32_t& val2, uint32_t& val3, uint32_t& val4, std::string& err);
   };
 
 } // namespace roboclaw_driver

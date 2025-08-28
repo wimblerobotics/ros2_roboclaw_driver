@@ -14,6 +14,24 @@ roboclaw_driver:
     max_angular_velocity: 0.07
     max_seconds_uncommanded_travel: 0.25
 
+    # Motor PID and QPPS configuration
+    # The P, I, D and maximum quadrature pulses per second for both motors.
+    # These values are for my robot. Replace them with your own values.
+    # Use Basic Micro's Motion Studio to determine the values.
+    m1_p: 7.26239
+    m1_i: 2.43
+    m1_d: 0.0
+    m1_qpps: 2437
+    m2_p: 7.26239
+    m2_i: 1.28767
+    m2_d: 0.0
+    m2_qpps: 2437
+
+    # The maximum expected current (in amps) for both motors.
+    # Used for warnings and initialization.
+    m1_max_current: 6.0
+    m2_max_current: 6.0
+
     # Robot physical parameters
     wheel_radius: 0.10169
     wheel_separation: 0.345

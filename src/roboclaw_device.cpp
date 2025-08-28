@@ -7,31 +7,15 @@
 #include <cstring>
 #include <cerrno>
 #include <vector>
-#include <stdexcept>
-#include <iostream>  // For debug output
 
 namespace roboclaw_driver {
+
+#define MAXRETRY 2
 
   RoboClawDevice::RoboClawDevice(const std::string& device, int baud_rate, uint8_t address)
     : device_(device), baud_(baud_rate), addr_(address) {
     std::string err;
-
-    // Open and configure serial port
-    if (!openPort(err)) {
-      throw std::runtime_error("Failed to open RoboClaw device '" + device + "': " + err);
-    }
-
-    // Verify device communication by reading firmware version
-    std::string version_str = version();
-    if (version_str.empty()) {
-      ::close(fd_);
-      fd_ = -1;
-      throw std::runtime_error("RoboClaw device at address " + std::to_string(address) +
-        " failed to respond to firmware version request. " +
-        "Check device address and baud rate (" + std::to_string(baud_rate) + ").");
-    }
-
-    initialized_ = true;
+    openPort(err);
   }
 
   RoboClawDevice::~RoboClawDevice() {
@@ -55,8 +39,14 @@ namespace roboclaw_driver {
 
     cfmakeraw(&tio);
 
-    speed_t speed = B38400;  // Default fallback
+    speed_t speed = B38400;
     switch (baud_) {
+    case 2400:
+      speed = B2400;
+      break;
+    case 4800:
+      speed = B4800;
+      break;
     case 9600:
       speed = B9600;
       break;
@@ -78,11 +68,31 @@ namespace roboclaw_driver {
     case 460800:
       speed = B460800;
       break;
+    case 500000:
+      speed = B500000;
+      break;
+    case 576000:
+      speed = B576000;
+      break;
+    case 921600:
+      speed = B921600;
+      break;
+    case 1000000:
+      speed = B1000000;
+      break;
+    case 1152000:
+      speed = B1152000;
+      break;
+    case 1500000:
+      speed = B1500000;
+      break;
+    case 2000000:
+      speed = B2000000;
+      break;
     default:
-      err = "Unsupported baud rate: " + std::to_string(baud_);
-      ::close(fd_);
-      fd_ = -1;
-      return false;
+      // For USB devices, baud rate is often ignored, but use safe default
+      speed = B38400;
+      break;
     }
 
     cfsetispeed(&tio, speed);
@@ -109,6 +119,11 @@ namespace roboclaw_driver {
     }
   }
 
+  void RoboClawDevice::flush() {
+    if (fd_ < 0) return;
+    tcflush(fd_, TCIOFLUSH);
+  }
+
   bool RoboClawDevice::writeBytes(const uint8_t* data, size_t len, std::string& err) {
     size_t off = 0;
     while (off < len) {
@@ -129,25 +144,19 @@ namespace roboclaw_driver {
 
     int r = poll(&p, 1, to_ms);
     if (r <= 0) {
-      if (r == 0) {
-        err = "timeout after " + std::to_string(timeout_sec) + "s";
-          } else {
-        err = "poll error: " + std::string(strerror(errno));
-      }
+      err = r == 0 ? "timeout" : "poll";
       return 0;
     }
 
     unsigned char b;
     ssize_t n = ::read(fd_, &b, 1);
     if (n != 1) {
-      err = "read error: " + std::string(strerror(errno));
+      err = "read";
       return 0;
     }
 
     return b;
-  }
-
-  bool RoboClawDevice::readBytes(uint8_t* dst, size_t len, double timeout_sec, std::string& err) {
+  }  bool RoboClawDevice::readBytes(uint8_t* dst, size_t len, double timeout_sec, std::string& err) {
     for (size_t i = 0; i < len; ++i) {
       dst[i] = readByte(timeout_sec, err);
       if (!err.empty()) return false;
@@ -156,70 +165,19 @@ namespace roboclaw_driver {
   }
 
   bool RoboClawDevice::commandTxNeedsCRC(uint8_t cmd) const {
-    // Based on reference Arduino implementation analysis:
-    // Commands that use write_n() need CRC and expect 0xFF acknowledgment
     switch (cmd) {
-    case 0:   // M1FORWARD
-    case 1:   // M1BACKWARD  
-    case 2:   // SETMINMB
-    case 3:   // SETMAXMB
-    case 4:   // M2FORWARD
-    case 5:   // M2BACKWARD
-    case 6:   // M17BIT
-    case 7:   // M27BIT
-    case 8:   // MIXEDFORWARD
-    case 9:   // MIXEDBACKWARD
-    case 10:  // MIXEDRIGHT
-    case 11:  // MIXEDLEFT
-    case 12:  // MIXEDFB
-    case 13:  // MIXEDLR
-    case 20:  // RESETENC - uses write_n(2, ...)
-    case 22:  // SETM1ENCCOUNT - uses write_n(6, ...) - WRITE operation
-    case 23:  // SETM2ENCCOUNT - uses write_n(6, ...) - WRITE operation
-    case 26:  // SETMINLB
-    case 27:  // SETMAXLB
-    case 28:  // SETM1PID - uses write_n(18, ...)
-    case 29:  // SETM2PID - uses write_n(18, ...)
-    case 32:  // M1DUTY
-    case 33:  // M2DUTY
-    case 34:  // MIXEDDUTY
-    case 35:  // M1SPEED
-    case 36:  // M2SPEED
-    case 37:  // MIXEDSPEED - uses write_n(10, ...)
-    case 38:  // M1SPEEDACCEL
-    case 39:  // M2SPEEDACCEL
-    case 40:  // MIXEDSPEEDACCEL
-    case 41:  // M1SPEEDDIST
-    case 42:  // M2SPEEDDIST
-    case 43:  // MIXEDSPEEDDIST
-    case 44:  // M1SPEEDACCELDIST
-    case 45:  // M2SPEEDACCELDIST
-    case 46:  // MIXEDSPEEDACCELDIST - uses write_n(23, ...)
-    case 50:  // MIXEDSPEED2ACCEL
-    case 51:  // MIXEDSPEED2ACCELDIST
-    case 52:  // M1DUTYACCEL
-    case 53:  // M2DUTYACCEL
-    case 54:  // MIXEDDUTYACCEL
-    case 57:  // SETMAINVOLTAGES
-    case 58:  // SETLOGICVOLTAGES
-    case 61:  // SETM1POSPID
-    case 62:  // SETM2POSPID
-    case 65:  // M1SPEEDACCELDECCELPOS
-    case 66:  // M2SPEEDACCELDECCELPOS
-    case 67:  // MIXEDSPEEDACCELDECCELPOS
-    case 68:  // SETM1DEFAULTACCEL
-    case 69:  // SETM2DEFAULTACCEL
-    case 74:  // SETPINFUNCTIONS
-    case 76:  // SETDEADBAND
-    case 80:  // RESTOREDEFAULTS
-    case 92:  // SETM1ENCODERMODE
-    case 93:  // SETM2ENCODERMODE
-    case 94:  // WRITENVM
-    case 95:  // READNVM
-    case 98:  // SETCONFIG
-    case 133: // SETM1MAXCURRENT
-    case 134: // SETM2MAXCURRENT
-    case 148: // SETPWMMODE
+    case 22:
+    case 23:
+    case 24:
+    case 25:
+    case 28:
+    case 29:
+    case 30:
+    case 31:
+    case 37:
+    case 46:
+    case 49:
+    case 82:
       return true;
     default:
       return false;
@@ -227,39 +185,23 @@ namespace roboclaw_driver {
   }
 
   bool RoboClawDevice::commandRxHasCRC(uint8_t cmd) const {
-    // Based on reference Arduino implementation analysis:
-    // Commands that use Read1(), Read2(), Read4(), Read4_1() have CRC in response
     switch (cmd) {
-    case 16:  // GETM1ENC - uses Read4_1()
-    case 17:  // GETM2ENC - uses Read4_1()
-    case 18:  // GETM1SPEED - uses Read4_1()
-    case 19:  // GETM2SPEED - uses Read4_1()
-    case 21:  // GETVERSION - special case with CRC
-    case 24:  // GETMBATT - uses Read2()
-    case 25:  // GETLBATT - uses Read2()
-    case 30:  // GETM1ISPEED - uses Read4_1()
-    case 31:  // GETM2ISPEED - uses Read4_1()
-    case 47:  // GETBUFFERS - uses Read2()
-    case 48:  // GETPWMS - uses Read4()
-    case 49:  // GETCURRENTS - uses Read4()
-    case 55:  // READM1PID - complex read with CRC
-    case 56:  // READM2PID - complex read with CRC
-    case 59:  // GETMINMAXMAINVOLTAGES - uses Read4()
-    case 60:  // GETMINMAXLOGICVOLTAGES - uses Read4()
-    case 63:  // READM1POSPID - complex read with CRC
-    case 64:  // READM2POSPID - complex read with CRC
-    case 75:  // GETPINFUNCTIONS - custom read with CRC
-    case 77:  // GETDEADBAND - uses Read2()
-    case 78:  // GETENCODERS - complex read with CRC
-    case 79:  // GETISPEEDS - complex read with CRC
-    case 82:  // GETTEMP - uses Read2()
-    case 83:  // GETTEMP2 - uses Read2()
-    case 90:  // GETERROR - uses Read4()
-    case 91:  // GETENCODERMODE - uses Read2()
-    case 99:  // GETCONFIG - uses Read2()
-    case 135: // GETM1MAXCURRENT - complex read with CRC
-    case 136: // GETM2MAXCURRENT - complex read with CRC
-    case 149: // GETPWMMODE - uses Read1()
+    case 21:
+    case 22:
+    case 23:
+    case 24:
+    case 25:
+    case 28:
+    case 29:
+    case 30:
+    case 31:
+    case 37:
+    case 46:
+    case 49:
+    case 55:  // ReadM1VelocityPID
+    case 56:  // ReadM2VelocityPID
+    case 82:
+    case 90:
       return true;
     default:
       return false;
@@ -273,7 +215,6 @@ namespace roboclaw_driver {
     buf.push_back(addr_);
     buf.push_back(command);
     for (size_t i = 0; i < len; ++i) buf.push_back(payload[i]);
-
     return writeBytes(buf.data(), buf.size(), err);
   }
 
@@ -288,24 +229,7 @@ namespace roboclaw_driver {
     for (auto b : buf) updateCrc(crc, b);
     buf.push_back((crc >> 8) & 0xFF);
     buf.push_back(crc & 0xFF);
-
-    if (!writeBytes(buf.data(), buf.size(), err)) {
-      return false;
-    }
-
-    // Read acknowledgment (0xFF) like reference implementation
-    uint8_t ack = readByte(0.1, err);
-    if (!err.empty()) {
-      return false;
-    }
-
-    if (ack != 0xFF) {
-      err = "Invalid ACK response, expected 0xFF but got 0x" +
-        std::to_string(ack);
-      return false;
-    }
-
-    return true;
+    return writeBytes(buf.data(), buf.size(), err);
   }
 
   bool RoboClawDevice::readU16(uint8_t cmd, uint16_t& val, std::string& err) {
@@ -393,32 +317,66 @@ namespace roboclaw_driver {
 
   bool RoboClawDevice::readU32WithStatus(uint8_t cmd, uint32_t& value, uint8_t& status,
     std::string& err) {
-    if (commandTxNeedsCRC(cmd)) {
-      if (!sendCrc(cmd, nullptr, 0, err)) return false;
-    } else {
-      if (!sendSimple(cmd, nullptr, 0, err)) return false;
-    }
-    bool rx_crc = commandRxHasCRC(cmd);
-    uint8_t data[5];
-    if (!readBytes(data, 5, 0.05, err)) return false;
-    uint16_t crc = 0;
-    if (rx_crc) {
-      updateCrc(crc, addr_);
-      updateCrc(crc, cmd);
-      for (int i = 0; i < 5; ++i) updateCrc(crc, data[i]);
-      uint8_t hi, lo;
-      if (!readBytes(&hi, 1, 0.05, err)) return false;
-      if (!readBytes(&lo, 1, 0.05, err)) return false;
-      uint16_t rx = (uint16_t(hi) << 8) | lo;
-      if (rx != crc) {
-        err = "crc mismatch";
-        return false;
+    uint8_t trys = MAXRETRY;
+
+    do {
+      flush();
+
+      // Send command
+      std::vector<uint8_t> cmd_buf = { addr_, cmd };
+      if (!writeBytes(cmd_buf.data(), cmd_buf.size(), err)) {
+        continue;
       }
-    }
-    value = (uint32_t(data[0]) << 24) | (uint32_t(data[1]) << 16) | (uint32_t(data[2]) << 8) |
-      data[3];
-    status = data[4];
-    return true;
+
+      // Read response - 5 bytes (4 for value + 1 for status)
+      uint8_t data[5];
+      bool read_ok = true;
+
+      for (int i = 0; i < 5; i++) {
+        std::string read_err;
+        data[i] = readByte(0.1, read_err);
+        if (!read_err.empty()) {
+          read_ok = false;
+          break;
+        }
+      }
+
+      if (!read_ok) {
+        continue;
+      }
+
+      // Read CRC if command has one
+      if (commandRxHasCRC(cmd)) {
+        uint8_t crc_high, crc_low;
+        std::string crc_err;
+        crc_high = readByte(0.1, crc_err);
+        if (!crc_err.empty()) continue;
+        crc_low = readByte(0.1, crc_err);
+        if (!crc_err.empty()) continue;
+
+        // Calculate expected CRC
+        uint16_t calc_crc = 0;
+        updateCrc(calc_crc, addr_);
+        updateCrc(calc_crc, cmd);
+        for (int i = 0; i < 5; i++) {
+          updateCrc(calc_crc, data[i]);
+        }
+
+        uint16_t recv_crc = (uint16_t(crc_high) << 8) | crc_low;
+        if (calc_crc != recv_crc) {
+          continue;  // CRC mismatch, retry
+        }
+      }
+
+      // Decode value and status
+      value = (uint32_t(data[0]) << 24) | (uint32_t(data[1]) << 16) | (uint32_t(data[2]) << 8) | data[3];
+      status = data[4];
+      return true;
+
+    } while (trys--);
+
+    err = "readU32WithStatus failed after retries";
+    return false;
   }
 
   bool RoboClawDevice::readVelocity(uint8_t cmd, int32_t& vel, std::string& err) {
@@ -464,6 +422,86 @@ namespace roboclaw_driver {
     return commandTxNeedsCRC(cmd) ? sendCrc(cmd, payload, 16, err) : sendSimple(cmd, payload, 16, err);
   }
 
+  bool RoboClawDevice::read4Values(uint8_t cmd, uint32_t& val1, uint32_t& val2, uint32_t& val3, uint32_t& val4, std::string& err) {
+    uint8_t trys = MAXRETRY;
+
+    do {
+      flush();
+
+      // Send command
+      std::vector<uint8_t> cmd_buf = { addr_, cmd };
+      if (!writeBytes(cmd_buf.data(), cmd_buf.size(), err)) {
+        continue;
+      }
+
+      // Read response - 16 bytes for 4 uint32 values
+      uint8_t data[16];
+      bool read_ok = true;
+      int16_t byte_val;
+
+      for (int i = 0; i < 16; i++) {
+        std::string read_err;
+        byte_val = (int16_t)readByte(0.1, read_err);
+        if (!read_err.empty()) {
+          read_ok = false;
+          break;
+        }
+        data[i] = (uint8_t)byte_val;
+      }
+
+      if (!read_ok) {
+        continue;
+      }
+
+      // Read CRC
+      uint8_t crc_high, crc_low;
+      std::string crc_err;
+      crc_high = readByte(0.1, crc_err);
+      if (!crc_err.empty()) continue;
+      crc_low = readByte(0.1, crc_err);
+      if (!crc_err.empty()) continue;
+
+      // Calculate expected CRC
+      uint16_t calc_crc = 0;
+      updateCrc(calc_crc, addr_);
+      updateCrc(calc_crc, cmd);
+      for (int i = 0; i < 16; i++) {
+        updateCrc(calc_crc, data[i]);
+      }
+
+      uint16_t recv_crc = (uint16_t(crc_high) << 8) | crc_low;
+      if (calc_crc == recv_crc) {
+        // Decode the 4 uint32 values
+        val1 = (uint32_t(data[0]) << 24) | (uint32_t(data[1]) << 16) | (uint32_t(data[2]) << 8) | data[3];
+        val2 = (uint32_t(data[4]) << 24) | (uint32_t(data[5]) << 16) | (uint32_t(data[6]) << 8) | data[7];
+        val3 = (uint32_t(data[8]) << 24) | (uint32_t(data[9]) << 16) | (uint32_t(data[10]) << 8) | data[11];
+        val4 = (uint32_t(data[12]) << 24) | (uint32_t(data[13]) << 16) | (uint32_t(data[14]) << 8) | data[15];
+        return true;
+      }
+
+    } while (trys--);
+
+    err = "read4Values failed after retries";
+    return false;
+  }
+
+  bool RoboClawDevice::readPID(int motor, PIDSnapshot& pid_out, std::string& err) {
+    uint8_t cmd = (motor == 1) ? 55 : 56;  // ReadM1VelocityPID : ReadM2VelocityPID
+    uint32_t P, I, D, qpps;
+
+    if (!read4Values(cmd, P, I, D, qpps, err)) {
+      return false;
+    }
+
+    // Convert from fixed point (65536 scale factor) to float
+    pid_out.p = static_cast<float>(P) / 65536.0f;
+    pid_out.i = static_cast<float>(I) / 65536.0f;
+    pid_out.d = static_cast<float>(D) / 65536.0f;
+    pid_out.qpps = qpps;
+
+    return true;
+  }
+
   bool RoboClawDevice::driveSpeeds(int32_t m1_qpps, int32_t m2_qpps, std::string& err) {
     uint8_t cmd = 37;
     uint8_t payload[8] = { (uint8_t)(m1_qpps >> 24), (uint8_t)(m1_qpps >> 16), (uint8_t)(m1_qpps >> 8),
@@ -477,104 +515,110 @@ namespace roboclaw_driver {
     return ok;
   }
 
+  bool RoboClawDevice::driveSpeedsAccelDistance(int32_t m1_qpps, int32_t m2_qpps, uint32_t accel, uint32_t distance, std::string& err) {
+    uint8_t cmd = 46;  // Drive M1/M2 With Signed Speed, Accel and Distance (Buffered)
+    uint8_t payload[16] = {
+      (uint8_t)(m1_qpps >> 24), (uint8_t)(m1_qpps >> 16), (uint8_t)(m1_qpps >> 8), (uint8_t)m1_qpps,
+      (uint8_t)(m2_qpps >> 24), (uint8_t)(m2_qpps >> 16), (uint8_t)(m2_qpps >> 8), (uint8_t)m2_qpps,
+      (uint8_t)(accel >> 24), (uint8_t)(accel >> 16), (uint8_t)(accel >> 8), (uint8_t)accel,
+      (uint8_t)(distance >> 24), (uint8_t)(distance >> 16), (uint8_t)(distance >> 8), (uint8_t)distance
+    };
+    bool ok = commandTxNeedsCRC(cmd) ? sendCrc(cmd, payload, 16, err) : sendSimple(cmd, payload, 16, err);
+    if (ok) {
+      last_cmd_m1_ = m1_qpps;
+      last_cmd_m2_ = m2_qpps;
+    }
+    return ok;
+  }
+
   bool RoboClawDevice::resetEncoders(std::string& err) {
     uint8_t cmd = 20;
-    // RESETENC command needs CRC according to reference implementation
-    return sendCrc(cmd, nullptr, 0, err);
+    return sendSimple(cmd, nullptr, 0, err);
   }
 
   std::string RoboClawDevice::version() {
     std::string err;
-    uint8_t cmd = 21;  // GET_VERSION command
+    uint8_t cmd = 21;
 
     if (!sendSimple(cmd, nullptr, 0, err)) {
       return "";
     }
 
+    // Read version string - it should be null-terminated  
     std::vector<uint8_t> accum;
     accum.reserve(64);
 
-    // Read until null terminator (like reference implementation)
-    for (int i = 0; i < 48; ++i) {  // Reference reads up to 48 chars
+    // Read up to 32 bytes looking for null terminator
+    for (int i = 0; i < 32; i++) {
       uint8_t ch = 0;
       std::string e2;
-      ch = readByte(0.1, e2);  // Increased timeout to 100ms
+      ch = readByte(0.1, e2);
       if (!e2.empty()) {
         return "";
       }
 
-      accum.push_back(ch);  // Include the byte in accumulator
-
-      if (ch == '\0') {  // Found null terminator - read CRC next
+      if (ch == 0) {
         break;
       }
+      accum.push_back(ch);
     }
 
-    // Read CRC
+    // read CRC
     uint8_t hi = 0, lo = 0;
     std::string e3;
     hi = readByte(0.1, e3);
     if (!e3.empty()) {
       return "";
     }
+
     lo = readByte(0.1, e3);
     if (!e3.empty()) {
       return "";
     }
 
-    // Verify CRC - include ALL bytes including null terminator
+    // Calculate CRC including null terminator
     uint16_t crc_calc = 0;
     updateCrc(crc_calc, addr_);
     updateCrc(crc_calc, cmd);
-    for (auto b : accum) updateCrc(crc_calc, b);  // This now includes the null terminator
+    for (auto b : accum) updateCrc(crc_calc, b);
+    updateCrc(crc_calc, 0);  // Include null terminator in CRC
     uint16_t crc_rx = (uint16_t(hi) << 8) | lo;
 
     if (crc_calc != crc_rx) {
       return "";
     }
 
-    // Create string without the null terminator
-    std::string version_str;
-    for (auto b : accum) {
-      if (b == '\0') break;
-      version_str += (char)b;
-    }
-
-    return version_str;
-  }
-
-  bool RoboClawDevice::readSnapshot(Snapshot& out, std::string& err) {
+    return std::string(accum.begin(), accum.end());
+  }  bool RoboClawDevice::readSnapshot(Snapshot& out, std::string& err) {
     uint32_t v = 0;
     uint8_t status = 0;
-    // Use GETM1ENC (16) and GETM2ENC (17) commands, not SETM1ENCCOUNT (22)/SETM2ENCCOUNT (23)
-    if (!readU32WithStatus(16, v, status, err)) return false;
+    if (!readU32WithStatus(16, v, status, err)) return false;  // GETM1ENC - correct command
     out.m1_enc.value = v;
     out.m1_enc.status = status;
-    if (!readU32WithStatus(17, v, status, err)) return false;
+    if (!readU32WithStatus(17, v, status, err)) return false;  // GETM2ENC - correct command
     out.m2_enc.value = v;
     out.m2_enc.status = status;
     int32_t vel = 0;
-    // Use GETM1ISPEED (30) and GETM2ISPEED (31) for instantaneous speed
     if (readVelocity(30, vel, err)) out.m1_enc.speed_qpps = vel;
     if (readVelocity(31, vel, err)) out.m2_enc.speed_qpps = vel;
     uint16_t mv = 0;
-    // Use GETMBATT (24) for main battery voltage
     if (readU16(24, mv, err)) out.volts.main = mv / 10.0f;
     uint16_t lv = 0;
-    // Use GETLBATT (25) for logic battery voltage
     if (readU16(25, lv, err)) out.volts.logic = lv / 10.0f;
     uint16_t m1 = 0, m2 = 0;
-    // Use GETCURRENTS (49) for motor currents
     if (readCurrents(49, m1, m2, err)) {
       out.currents.m1_inst = m1 / 100.0f;
       out.currents.m2_inst = m2 / 100.0f;
     }
     uint16_t temp_raw = 0;
-    // Use GETTEMP (82) for temperature
     if (readU16(82, temp_raw, err)) out.temps.t1 = temp_raw / 10.0f;
     uint32_t status_bits = 0;
-    // Use GETERROR (90) for status bits
     if (readU32(90, status_bits, err)) out.status_bits = status_bits;
+
+    // Read PID values for both motors
+    readPID(1, out.m1_pid, err);  // Don't fail snapshot if PID read fails
+    readPID(2, out.m2_pid, err);
+
     return true;
   }
 

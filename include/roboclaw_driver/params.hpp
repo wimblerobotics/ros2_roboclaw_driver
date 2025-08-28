@@ -7,7 +7,7 @@ namespace roboclaw_driver {
     // Parameter name constants
     static constexpr const char* kPort = "device_name";           // serial or usb path
     static constexpr const char* kBaudRate = "baud_rate";         // ignored for USB virtual ACM
-    static constexpr const char* kDeviceAddress = "device_address";  // RoboClaw device address (0-127)
+    static constexpr const char* kDeviceAddress = "device_port";  // RoboClaw address
     static constexpr const char* kAccelQpps = "accel_quad_pulses_per_second";
     static constexpr const char* kM1P = "m1_p";
     static constexpr const char* kM1I = "m1_i";
@@ -49,14 +49,14 @@ namespace roboclaw_driver {
     static constexpr const char* kStallSpeedRatio = "stall_speed_ratio";
     static constexpr const char* kStallMinCommand = "stall_min_command";
     static constexpr const char* kStallTimeout = "stall_timeout";
-    static constexpr const char* kEstopAutoClear = "estop_auto_clear_enabled";
+    static constexpr const char* kEstopAutoClear = "estop_auto_clear";
     static constexpr const char* kEstopRepeatWindow = "estop_repeat_window";
     static constexpr const char* kEstopRepeatLimit = "estop_repeat_limit";
     static constexpr const char* kLogLevel = "log_level";
     static constexpr const char* kDebug = "do_debug";
     static constexpr const char* kDebugLowLevel = "do_low_level_debug";
-    static constexpr const char* kFrameOdom = "odom_frame";
-    static constexpr const char* kFrameBase = "base_frame";
+    static constexpr const char* kFrameOdom = "frame_odom";
+    static constexpr const char* kFrameBase = "frame_base";
     static constexpr const char* kFrameIMU = "imu_frame";
     static constexpr const char* kOdomLinearCov = "odom_linear_covariance";
     static constexpr const char* kOdomAngularCov = "odom_angular_covariance";

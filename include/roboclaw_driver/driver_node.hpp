@@ -10,7 +10,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 
-#include "roboclaw_driver/command_shaper.hpp"
 #include "roboclaw_driver/estop_manager.hpp"
 #include "roboclaw_driver/odometry_integrator.hpp"
 #include "roboclaw_driver/safety_supervisor.hpp"
@@ -53,7 +52,6 @@ namespace roboclaw_driver {
         double last_cmd_time_{ 0 };
         std::unique_ptr<RoboClawDevice> roboclaw_dev_;
         StatusDecoder status_decoder_;
-        CommandShaper command_shaper_;
         OdometryIntegrator odom_;
         EStopManager estop_mgr_;
         SafetySupervisor safety_;

@@ -12,7 +12,7 @@ def generate_launch_description():
     # package name in your robot workspace that will contain
     # your own yaml configuration file.
     #
-    # Also the 'motor_driver.yaml' should be changed to the yaml
+    # Also the 'roboclaw_driver.yaml' should be changed to the yaml
     # configuration file name in your robot package. The example
     # launch file here assumes that your configuration file will
     # be under the 'config' directory within the my_package_name
@@ -28,7 +28,7 @@ def generate_launch_description():
     configFilePath = os.path.join(
         get_package_share_directory(my_package_name),
         'config',
-        'motor_driver.yaml'
+        'roboclaw_driver.yaml'
     )
 
     # Extract the relevant configuration parameters from the yaml file.
@@ -39,7 +39,7 @@ def generate_launch_description():
 
     with open(configFilePath, 'r') as file:
         configParams = yaml.safe_load(
-            file)['motor_driver_node']['ros__parameters']
+            file)['roboclaw_driver']['ros__parameters']
 
     ld = LaunchDescription()
 

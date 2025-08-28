@@ -11,13 +11,13 @@
 motor_driver_node:
   ros__parameters:
     # Incremental acceleration to use in quadrature pulses per second.
-    accel_quad_pulses_per_second: 1000
+    accel_quad_pulses_per_second: 1000.0
 
     # The device name to be opened. Change this to your actual device you are using.
     # Both USB and UART devices are supported. The device name is the
     # name of the device as it appears in the /dev directory.
     device_name: "/dev/roboclaw"
-    baud_rate: 38400 # This does not apply when using USB.
+    baud_rate: 230400 # This does not apply when using USB.
 
     # The assigned port for the device (as configured on the RoboClaw).
     device_port: 128
