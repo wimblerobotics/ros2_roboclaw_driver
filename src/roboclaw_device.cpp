@@ -1,5 +1,6 @@
 // MIT License
 #include "roboclaw_driver/roboclaw_device.hpp"
+#include "roboclaw_driver/transport.hpp"
 #include <termios.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -8,22 +9,32 @@
 #include <cerrno>
 #include <vector>
 #include <sstream>
+#include <chrono>
+#include <thread>
+#include <mutex>
 
 namespace roboclaw_driver {
 
 #define MAXRETRY 2
 
+  RoboClawDevice::RoboClawDevice(std::shared_ptr<ITransport> transport, uint8_t address)
+    : transport_(std::move(transport)), addr_(address) {
+  }
+
   RoboClawDevice::RoboClawDevice(const std::string& device, int baud_rate, uint8_t address)
     : device_(device), baud_(baud_rate), addr_(address) {
-    std::string err;
-    openPort(err);
+    if (!transport_) {
+      std::string err; openPort(err);
+    }
   }
 
   RoboClawDevice::~RoboClawDevice() {
-    if (fd_ >= 0) ::close(fd_);
+    if (!transport_ && fd_ >= 0) ::close(fd_);
   }
 
   bool RoboClawDevice::openPort(std::string& err) {
+    if (transport_) return true; // external transport handles opening
+
     if (fd_ >= 0) return true;
 
     fd_ = ::open(device_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
@@ -121,11 +132,14 @@ namespace roboclaw_driver {
   }
 
   void RoboClawDevice::flush() {
+    if (transport_) { transport_->flush(); return; }
     if (fd_ < 0) return;
     tcflush(fd_, TCIOFLUSH);
   }
 
   bool RoboClawDevice::writeBytes(const uint8_t* data, size_t len, std::string& err) {
+    if (transport_) return transport_->write(data, len, err);
+
     size_t off = 0;
     while (off < len) {
       ssize_t w = ::write(fd_, data + off, len - off);
@@ -140,6 +154,8 @@ namespace roboclaw_driver {
   }
 
   uint8_t RoboClawDevice::readByte(double timeout_sec, std::string& err) {
+    if (transport_) return transport_->readByte(timeout_sec, err);
+
     struct pollfd p { fd_, POLLIN, 0 };
     int to_ms = (int)(timeout_sec * 1000.0);
 
@@ -160,6 +176,8 @@ namespace roboclaw_driver {
   }
 
   bool RoboClawDevice::readBytes(uint8_t* dst, size_t len, double timeout_sec, std::string& err) {
+    if (transport_) return transport_->read(dst, len, timeout_sec, err);
+
     for (size_t i = 0; i < len; ++i) {
       dst[i] = readByte(timeout_sec, err);
       if (!err.empty()) return false;
@@ -172,38 +190,47 @@ namespace roboclaw_driver {
     for (size_t i = 0;i < data.size();++i) { if (i) oss << ' '; oss << std::hex << std::uppercase; oss.width(2); oss.fill('0'); oss << int(data[i]); }
     return oss.str();
   }
+  static std::string byteToHex(uint8_t b) { std::vector<uint8_t> v{ b }; return toHex(v); }
 
   bool RoboClawDevice::sendCommandWrite(uint8_t command, const uint8_t* payload, size_t len, std::string& err) {
-    last_command_ = command; last_was_write_ = true; last_tx_.clear(); last_rx_.clear();
-    for (int attempt = 0; attempt < retry_count_; ++attempt) {
-      flush();
-      std::vector<uint8_t> buf; buf.reserve(2 + len + 2);
-      uint16_t crc = 0;
-      buf.push_back(addr_); updateCrc(crc, addr_);
-      buf.push_back(command); updateCrc(crc, command);
-      for (size_t i = 0; i < len; ++i) { uint8_t b = payload ? payload[i] : 0; buf.push_back(b); updateCrc(crc, b); }
-      buf.push_back((uint8_t)(crc >> 8)); buf.push_back((uint8_t)crc);
-      if (!writeBytes(buf.data(), buf.size(), err)) { last_tx_ = toHex(buf); continue; }
-      last_tx_ = toHex(buf);
-      std::string ack_err; uint8_t ack = readByte(0.05, ack_err);
-      if (ack_err.empty()) {
-        last_rx_ = toHex(std::vector<uint8_t>{ack});
-        if (ack == 0xFF) return true;
-        err = "unexpected ack byte"; return false;
+    auto& st = cmd_stats_[command];
+    st.attempts++;
+    last_command_ = command;
+    last_was_write_ = true;
+    std::vector<uint8_t> frame; frame.reserve(2 + len + 2);
+    frame.push_back(addr_); frame.push_back(command);
+    for (size_t i = 0; i < len; ++i) frame.push_back(payload[i]);
+    uint16_t crc = 0; for (uint8_t b : frame) updateCrc(crc, b);
+    frame.push_back(uint8_t(crc >> 8)); frame.push_back(uint8_t(crc & 0xFF));
+    last_tx_ = toHex(frame);
+    std::string werr;
+    uint8_t ack = 0;
+    {
+      // Critical section: prevent read commands (sensor thread) from interleaving and
+      // consuming the expected 0xFF ACK byte.
+      std::lock_guard<std::mutex> lk(io_mutex_);
+      if (!writeBytes(frame.data(), frame.size(), werr)) {
+        st.io_fail++; err = werr; flush(); std::this_thread::sleep_for(std::chrono::milliseconds(12)); return false;
       }
-      last_rx_ = ack_err; // store error string
+      std::string rerr; ack = readByte(0.05, rerr);
+      if (!rerr.empty()) { st.io_fail++; err = "ack read failure:" + rerr; flush(); std::this_thread::sleep_for(std::chrono::milliseconds(12)); return false; }
     }
-    err = "write failed after retries";
-    return false;
+    last_rx_ = byteToHex(ack);
+    if (ack != 0xFF) { err = "unexpected ack byte"; return false; }
+    return true;
   }
 
   bool RoboClawDevice::sendCommandRead(uint8_t command, std::string& err) {
-    // SPEC COMPLIANCE: Read (query) commands transmit ONLY address + command.
-    last_command_ = command; last_was_write_ = false; last_tx_.clear(); last_rx_.clear();
-    flush();
-    uint8_t hdr[2] = { addr_, command };
-    if (!writeBytes(hdr, 2, err)) { last_tx_ = toHex(std::vector<uint8_t>{hdr, hdr + 2}); return false; }
-    last_tx_ = toHex(std::vector<uint8_t>{hdr, hdr + 2});
+    auto& st = cmd_stats_[command];
+    st.attempts++;
+    last_command_ = command;
+    last_was_write_ = false;
+    uint8_t frame[2] = { addr_, command };
+    last_tx_ = toHex(std::vector<uint8_t>(frame, frame + 2));
+    std::string werr; {
+      std::lock_guard<std::mutex> lk(io_mutex_);
+      if (!writeBytes(frame, 2, werr)) { st.io_fail++; err = werr; flush(); std::this_thread::sleep_for(std::chrono::milliseconds(12)); return false; }
+    }
     return true;
   }
 
@@ -214,7 +241,14 @@ namespace roboclaw_driver {
     uint8_t crc_extra[2]; if (!readBytes(crc_extra, 2, 0.05, err)) { last_rx_ = toHex(rx) + " | ERR:" + err; return false; } rx.insert(rx.end(), crc_extra, crc_extra + 2);
     uint16_t crc = 0; updateCrc(crc, addr_); updateCrc(crc, cmd); updateCrc(crc, data[0]); updateCrc(crc, data[1]); uint16_t rxcrc = (uint16_t(crc_extra[0]) << 8) | crc_extra[1];
     last_rx_ = toHex(rx);
-    if (crc != rxcrc) { err = "crc mismatch"; return false; }
+    if (crc != rxcrc) {
+      cmd_stats_[last_command_].crc_fail++;
+      last_rx_ = toHex(rx);
+      err = "crc mismatch";
+      flush();
+      std::this_thread::sleep_for(std::chrono::milliseconds(12));
+      return false;
+    }
     val = (uint16_t(data[0]) << 8) | data[1]; return true;
   }
 
@@ -231,7 +265,14 @@ namespace roboclaw_driver {
     for (int i = 0; i < 4; ++i) updateCrc(crc, data[i]);
     uint16_t rxcrc = (uint16_t(crc_extra[0]) << 8) | crc_extra[1];
     last_rx_ = toHex(rx);
-    if (crc != rxcrc) { err = "crc mismatch"; return false; }
+    if (crc != rxcrc) {
+      cmd_stats_[last_command_].crc_fail++;
+      last_rx_ = toHex(rx);
+      err = "crc mismatch";
+      flush();
+      std::this_thread::sleep_for(std::chrono::milliseconds(12));
+      return false;
+    }
     m1 = (int16_t)((uint16_t)data[0] << 8 | data[1]);
     m2 = (int16_t)((uint16_t)data[2] << 8 | data[3]);
     return true;
@@ -250,7 +291,14 @@ namespace roboclaw_driver {
     for (int i = 0; i < 4; ++i) updateCrc(crc, data[i]);
     uint16_t rxcrc = (uint16_t(crc_extra[0]) << 8) | crc_extra[1];
     last_rx_ = toHex(rx);
-    if (crc != rxcrc) { err = "crc mismatch"; return false; }
+    if (crc != rxcrc) {
+      cmd_stats_[last_command_].crc_fail++;
+      last_rx_ = toHex(rx);
+      err = "crc mismatch";
+      flush();
+      std::this_thread::sleep_for(std::chrono::milliseconds(12));
+      return false;
+    }
     val = (uint32_t(data[0]) << 24) | (uint32_t(data[1]) << 16) | (uint32_t(data[2]) << 8) | data[3];
     return true;
   }
@@ -268,7 +316,14 @@ namespace roboclaw_driver {
     for (int i = 0; i < 5; ++i) updateCrc(crc, data[i]);
     uint16_t rxcrc = (uint16_t(crc_extra[0]) << 8) | crc_extra[1];
     last_rx_ = toHex(rx);
-    if (crc != rxcrc) { err = "crc mismatch"; return false; }
+    if (crc != rxcrc) {
+      cmd_stats_[last_command_].crc_fail++;
+      last_rx_ = toHex(rx);
+      err = "crc mismatch";
+      flush();
+      std::this_thread::sleep_for(std::chrono::milliseconds(12));
+      return false;
+    }
     value = (uint32_t(data[0]) << 24) | (uint32_t(data[1]) << 16) | (uint32_t(data[2]) << 8) | data[3];
     status = data[4];
     return true;
@@ -287,7 +342,14 @@ namespace roboclaw_driver {
     for (int i = 0; i < 5; ++i) updateCrc(crc, data[i]);
     uint16_t rxcrc = (uint16_t(crc_extra[0]) << 8) | crc_extra[1];
     last_rx_ = toHex(rx);
-    if (crc != rxcrc) { err = "crc mismatch"; return false; }
+    if (crc != rxcrc) {
+      cmd_stats_[last_command_].crc_fail++;
+      last_rx_ = toHex(rx);
+      err = "crc mismatch";
+      flush();
+      std::this_thread::sleep_for(std::chrono::milliseconds(12));
+      return false;
+    }
     int32_t raw = (int32_t(data[0]) << 24) | (int32_t(data[1]) << 16) | (int32_t(data[2]) << 8) | data[3];
     if (data[4] != 0) raw = -raw;
     vel = raw;
@@ -316,13 +378,10 @@ namespace roboclaw_driver {
   }
 
   bool RoboClawDevice::driveSpeedsAccelDistance(int32_t m1_qpps, int32_t m2_qpps, uint32_t accel, uint32_t distance, std::string& err) {
-    // SPEC (Cmd 46 - MIXEDSPEEDACCELDIST):
-    //  Address, 46,
-    //   Accel(4), SpeedM1(4), DistanceM1(4), SpeedM2(4), DistanceM2(4), Buffer(1), CRC(2)
-    //  Speeds are signed 32-bit, accel & distances unsigned. Buffer: 0=queue, 1=immediate (flush others).
-    //  Our API supplies a single distance -> apply to both motors (DistanceM1 = DistanceM2 = distance).
+    // SPEC Cmd 46 (MIXEDSPEEDACCELDIST): Accel(4) SpeedM1(4) DistanceM1(4) SpeedM2(4) DistanceM2(4) Buffer(1)
+    // Payload bytes = 4+4+4+4+4+1 = 21. Frame on wire: addr(1)+cmd(1)+payload(21)+CRC(2)=25 bytes then ACK 0xFF.
     uint8_t cmd = 46;
-    uint8_t buffer_mode = 0; // queue (do not flush) per safer default
+    uint8_t buffer_mode = 1; // immediate override
     uint8_t payload[21] = {
       // Accel
       (uint8_t)(accel >> 24),(uint8_t)(accel >> 16),(uint8_t)(accel >> 8),(uint8_t)accel,
@@ -335,8 +394,7 @@ namespace roboclaw_driver {
       // DistanceM2
       (uint8_t)(distance >> 24),(uint8_t)(distance >> 16),(uint8_t)(distance >> 8),(uint8_t)distance,
       // Buffer flag
-      buffer_mode
-    };
+      buffer_mode };
     bool ok = sendCommandWrite(cmd, payload, 21, err);
     if (ok) { last_cmd_m1_ = m1_qpps; last_cmd_m2_ = m2_qpps; }
     return ok;
@@ -384,15 +442,34 @@ namespace roboclaw_driver {
     if (!readU32WithStatus(17, out.m2_enc.value, out.m2_enc.status, err)) return false;
     if (!readVelocity(30, out.m1_enc.speed_qpps, err)) return false;
     if (!readVelocity(31, out.m2_enc.speed_qpps, err)) return false;
-    int16_t c1, c2; if (!readCurrents(49, c1, c2, err)) return false; out.currents.m1_inst = c1 / 100.0f; out.currents.m2_inst = c2 / 100.0f;
-    uint16_t mv; if (!readU16(24, mv, err)) return false; out.volts.main = mv / 10.0f;
-    if (!readU16(25, mv, err)) return false; out.volts.logic = mv / 10.0f;
-    if (!readU16(82, mv, err)) return false; out.temps.t1 = mv / 10.0f;
-    if (!readU16(83, mv, err)) { out.temps.t2 = 0.0f; } else out.temps.t2 = mv / 10.0f;
-    uint32_t status; if (!readU32(90, status, err)) return false; out.status_bits = status;
-    // PID (optional; failure shouldn't abort snapshot)
-    PIDSnapshot p1, p2; std::string perr; if (readPID(1, p1, perr)) out.m1_pid = p1; if (readPID(2, p2, perr)) out.m2_pid = p2;
+    int16_t c1, c2;
+    if (!readCurrents(49, c1, c2, err)) return false;
+    out.currents.m1_inst = c1 / 100.0f;
+    out.currents.m2_inst = c2 / 100.0f;
+    uint16_t mv;
+    if (!readU16(24, mv, err)) return false;
+    out.volts.main = mv / 10.0f;
+    if (!readU16(25, mv, err)) return false;
+    out.volts.logic = mv / 10.0f;
+    if (!readU16(82, mv, err)) return false;
+    out.temps.t1 = mv / 10.0f;
+    if (!readU16(83, mv, err)) {
+      out.temps.t2 = 0.0f;
+    } else {
+      out.temps.t2 = mv / 10.0f;
+    }
+    uint32_t status;
+    if (!readU32(90, status, err)) return false;
+    out.status_bits = status;
+    PIDSnapshot p1, p2;  // optional
+    std::string perr;
+    if (readPID(1, p1, perr)) out.m1_pid = p1;
+    if (readPID(2, p2, perr)) out.m2_pid = p2;
     return true;
+  }
+
+  bool RoboClawDevice::readMotorVelocity(int motor, int32_t& vel, std::string& err) {
+    uint8_t cmd = motor == 1 ? 30 : 31; return readVelocity(cmd, vel, err);
   }
 
 } // namespace roboclaw_driver

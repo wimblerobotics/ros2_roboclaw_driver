@@ -55,7 +55,7 @@ roboclaw_driver:
     frame_base: "base_link"
 
     # Safety configuration
-    safety_enabled: true
+    safety_enabled: false
     overcurrent_limit_m1: 6.0
     overcurrent_limit_m2: 6.0
     overcurrent_detect_time: 0.2
@@ -66,12 +66,6 @@ roboclaw_driver:
     temp_clear_delta: 5.0
     runaway_speed_factor: 1.5
     runaway_detect_time: 0.3
-    stall_speed_ratio: 0.1
-    stall_min_command: 100.0
-    stall_timeout: 1.0
-    estop_auto_clear: true
-    estop_repeat_window: 30.0
-    estop_repeat_limit: 5
 
     # Odometry covariance
     odom_linear_covariance: 0.0025

@@ -80,5 +80,16 @@ Queried during device construction (future improvement: log or publish).
 - Publish firmware version field in status
 - Optional CRC / I/O error counters
 
+## Removed / Deprecated Parameters
+
+The following parameters have been removed as of the rearchitect branch cleanup:
+
+- `stall_speed_ratio`
+- `stall_min_command`
+- `stall_timeout`
+- `estop_auto_clear`
+
+Buffered distance‑limited drive commands provide adequate protection against run-on motion during `cmd_vel` gaps, so stall detection was eliminated to reduce false estops and simplify the safety model. Any references in older configs should be deleted; they are silently ignored if present.
+
 ## License
 MIT

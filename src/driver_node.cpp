@@ -97,10 +97,10 @@ namespace roboclaw_driver {
     declare_parameter<double>(kTempClearDelta, d.temp_clear_delta);
     declare_parameter<double>(kRunawaySpeedFactor, d.runaway_speed_factor);
     declare_parameter<double>(kRunawayDetectTime, d.runaway_detect_time);
-    declare_parameter<double>(kStallSpeedRatio, d.stall_speed_ratio);
-    declare_parameter<double>(kStallMinCommand, d.stall_min_command);
-    declare_parameter<double>(kStallTimeout, d.stall_timeout);
-    declare_parameter<bool>(kEstopAutoClear, d.estop_auto_clear);
+    // Stall parameters deprecated
+    // declare_parameter<double>(kStallSpeedRatio, d.stall_speed_ratio);
+    // declare_parameter<double>(kStallMinCommand, d.stall_min_command);
+    // declare_parameter<double>(kStallTimeout, d.stall_timeout);
     declare_parameter<double>(kEstopRepeatWindow, d.estop_repeat_window);
     declare_parameter<int>(kEstopRepeatLimit, d.estop_repeat_limit);
     // Frames & joints
@@ -253,6 +253,9 @@ namespace roboclaw_driver {
     last_cmd_time_ = nowSec();
     double v = msg->linear.x;
     double w = msg->angular.z;
+    if (pulses_per_meter_ <= 0) {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "pulses_per_meter is %d; drive commands will be zero", pulses_per_meter_);
+    }
 
     // Apply velocity limits
     double max_linear = get_parameter(params::kMaxLinearVel).as_double();
@@ -293,6 +296,7 @@ namespace roboclaw_driver {
     // Send buffered command with distance limiting for safety
     std::string err;
     if (roboclaw_dev_) {
+      RCLCPP_DEBUG(this->get_logger(), "cmd_vel received v=%.3f w=%.3f -> m1=%d m2=%d qpps dist=%u", v, w, m1_qpps, m2_qpps, max_distance_pulses);
       bool ok = roboclaw_dev_->driveSpeedsAccelDistance(
         m1_qpps, m2_qpps,
         static_cast<uint32_t>(accel_qpps),
@@ -304,7 +308,7 @@ namespace roboclaw_driver {
           err.c_str(), roboclaw_dev_->lastTx().c_str(), roboclaw_dev_->lastRx().c_str());
       } else {
         RCLCPP_DEBUG(this->get_logger(),
-          "Sent buffered cmd: M1=%d, M2=%d qpps, accel=%u, max_dist=%u pulses",
+          "Sent buffered cmd (46): M1=%d, M2=%d qpps, accel=%u, max_dist=%u pulses",
           m1_qpps, m2_qpps, static_cast<uint32_t>(accel_qpps), max_distance_pulses);
       }
     }
@@ -414,7 +418,7 @@ namespace roboclaw_driver {
 
     // Error reporting
     msg.error_bits = snap.status_bits;
-    msg.error_json = ""; // TODO: Decode error bits to JSON if needed
+    msg.error_json = status_decoder_.toJson(snap.status_bits);
 
     // Safety & estop (assuming these are managed elsewhere)
     msg.safety_enabled = get_parameter(params::kSafetyEnabled).as_bool();
@@ -572,8 +576,8 @@ namespace roboclaw_driver {
           name == params::kOverCurrentClearTime || name == params::kOverCurrentHysteresis ||
           name == params::kTemp1Limit || name == params::kTemp2Limit ||
           name == params::kTempClearDelta || name == params::kRunawaySpeedFactor ||
-          name == params::kRunawayDetectTime || name == params::kStallSpeedRatio ||
-          name == params::kStallMinCommand || name == params::kStallTimeout) {
+          name == params::kRunawayDetectTime /*|| name == params::kStallSpeedRatio ||
+          name == params::kStallMinCommand || name == params::kStallTimeout*/ ) {
           safety_reconfig = true;  // validate ranges
           // Basic validation examples
           if (name == params::kOverCurrentLimitM1 || name == params::kOverCurrentLimitM2) {
@@ -621,9 +625,10 @@ namespace roboclaw_driver {
       cfg.temp_clear_delta = get_parameter(params::kTempClearDelta).as_double();
       cfg.runaway_speed_factor = get_parameter(params::kRunawaySpeedFactor).as_double();
       cfg.runaway_detect_time = get_parameter(params::kRunawayDetectTime).as_double();
-      cfg.stall_speed_ratio = get_parameter(params::kStallSpeedRatio).as_double();
-      cfg.stall_min_command = get_parameter(params::kStallMinCommand).as_double();
-      cfg.stall_timeout = get_parameter(params::kStallTimeout).as_double();
+      // Deprecated stall params ignored (were: stall_speed_ratio, stall_min_command, stall_timeout)
+      // cfg.stall_speed_ratio = get_parameter(params::kStallSpeedRatio).as_double();
+      // cfg.stall_min_command = get_parameter(params::kStallMinCommand).as_double();
+      // cfg.stall_timeout = get_parameter(params::kStallTimeout).as_double();
       safety_.configure(cfg);
     }
     return res;

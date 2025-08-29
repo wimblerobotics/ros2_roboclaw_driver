@@ -60,8 +60,13 @@ rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME}
 
 add_executable(
   roboclaw_driver
-  src/driver_node.cpp src/driver_main.cpp src/roboclaw_device.cpp
-  src/status_decoder.cpp src/estop_manager.cpp src/safety_supervisor.cpp)
+  src/driver_node.cpp
+  src/driver_main.cpp
+  src/roboclaw_device.cpp
+  src/status_decoder.cpp
+  src/estop_manager.cpp
+  src/safety_supervisor.cpp
+  src/transport.cpp)
 ament_target_dependencies(
   roboclaw_driver
   rclcpp
@@ -73,13 +78,51 @@ ament_target_dependencies(
   tf2_geometry_msgs)
 target_link_libraries(roboclaw_driver "${cpp_typesupport_target}")
 
+add_executable(
+  capture_harness
+  src/capture_harness.cpp src/roboclaw_device.cpp src/status_decoder.cpp
+  src/estop_manager.cpp src/safety_supervisor.cpp src/transport.cpp)
+ament_target_dependencies(
+  capture_harness
+  rclcpp
+  geometry_msgs
+  nav_msgs
+  sensor_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs)
+
+add_executable(
+  passive_capture
+  test/passive_capture.cpp src/status_decoder.cpp src/estop_manager.cpp
+  src/safety_supervisor.cpp src/roboclaw_device.cpp src/transport.cpp)
+ament_target_dependencies(
+  passive_capture
+  rclcpp
+  geometry_msgs
+  nav_msgs
+  sensor_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+  rosidl_default_runtime)
+target_link_libraries(passive_capture "${cpp_typesupport_target}")
+add_dependencies(passive_capture ${PROJECT_NAME}__cpp)
+
+add_executable(square_runner test/square_demo/square_runner.cpp)
+ament_target_dependencies(square_runner rclcpp geometry_msgs nav_msgs
+                          rosidl_default_runtime)
+target_link_libraries(square_runner "${cpp_typesupport_target}")
+add_dependencies(square_runner ${PROJECT_NAME}__cpp)
+
 # Install config files.
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME}/)
 
 # Install launch files.
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}/)
 
-install(TARGETS roboclaw_driver DESTINATION lib/${PROJECT_NAME})
+install(TARGETS roboclaw_driver capture_harness passive_capture square_runner
+        DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include/)
 
 if(BUILD_TESTING)

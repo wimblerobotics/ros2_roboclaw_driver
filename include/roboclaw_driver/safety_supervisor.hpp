@@ -18,10 +18,10 @@ namespace roboclaw_driver {
         double temp_clear_delta{ 5.0 };
         double runaway_speed_factor{ 1.5 };
         double runaway_detect_time{ 0.3 };
-        double stall_speed_ratio{ 0.1 };
-        double stall_min_command{ 100.0 };
-        double stall_timeout{ 1.0 };
-        bool estop_auto_clear{ true };
+        // Stall detection fields retained for backward compatibility but unused.
+        double stall_speed_ratio{ 0.1 }; // deprecated
+        double stall_min_command{ 100.0 }; // deprecated
+        double stall_timeout{ 1.0 }; // deprecated
     };
     struct SafetySample {
         double time_now; // seconds
@@ -42,6 +42,6 @@ namespace roboclaw_driver {
         double m1_overcurrent_clear_start_{ 0 }, m2_overcurrent_clear_start_{ 0 };
         double temp1_over_start_{ 0 }, temp2_over_start_{ 0 };
         double runaway_start_{ 0 };
-        double stall_start_{ 0 };
+        double stall_start_{ 0 }; // deprecated
     };
 } // namespace roboclaw_driver

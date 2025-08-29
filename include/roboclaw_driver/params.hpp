@@ -46,10 +46,11 @@ namespace roboclaw_driver {
     static constexpr const char* kTempClearDelta = "temp_clear_delta";
     static constexpr const char* kRunawaySpeedFactor = "runaway_speed_factor";
     static constexpr const char* kRunawayDetectTime = "runaway_detect_time";
-    static constexpr const char* kStallSpeedRatio = "stall_speed_ratio";
-    static constexpr const char* kStallMinCommand = "stall_min_command";
-    static constexpr const char* kStallTimeout = "stall_timeout";
-    static constexpr const char* kEstopAutoClear = "estop_auto_clear";
+    // Deprecated stall parameters
+    // constexpr const char* kStallSpeedRatio = "stall_speed_ratio";
+    // constexpr const char* kStallMinCommand = "stall_min_command";
+    // constexpr const char* kStallTimeout = "stall_timeout";
+    static constexpr const char* kEstopAutoClear = "estop_auto_clear"; // deprecated removed from YAML
     static constexpr const char* kEstopRepeatWindow = "estop_repeat_window";
     static constexpr const char* kEstopRepeatLimit = "estop_repeat_limit";
     static constexpr const char* kLogLevel = "log_level";
@@ -92,7 +93,6 @@ namespace roboclaw_driver {
       double stall_speed_ratio = 0.1;
       double stall_min_command = 100.0;  // qpps
       double stall_timeout = 1.0;
-      bool estop_auto_clear = true;
       double estop_repeat_window = 30.0;
       int estop_repeat_limit = 5;
       double odom_linear_cov = 0.0025;  // (0.05 m)^2
