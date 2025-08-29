@@ -1,0 +1,12 @@
+ros2 run ros2_roboclaw_driver capture_harness \
+--ros-args \
+-p device:=/dev/roboclaw \
+-p baud:=230400 \
+-p address:=128 \
+-p repetitions_non_motion:=50 \
+-p repetitions_motion:=10 \
+-p speed_linear_test:=0.2 \
+-p speed_angular_test:=0.6 \
+-p motion_duration_sec:=2.0 \
+-p rest_duration_sec:=0.5 \
+-p wheel_separation:=0.40

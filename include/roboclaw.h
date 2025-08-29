@@ -1,3 +1,16 @@
+// SPDX-License-Identifier: Apache-2.0
+/****************************************************************************
+ *  Copyright (c) 2025 Michael Wimble. All rights reserved.
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ ****************************************************************************/
 #pragma once
 
 #include <rcutils/logging_macros.h>
@@ -13,24 +26,24 @@
 
 #include "ros2_roboclaw_driver/srv/reset_encoders.hpp"
 
-/* The expected client is motor_driver.cpp
- * The expected node is motor_driver_node.cpp
- *
- * This class provides a C++ interface to the RoboClaw motor controller.
- * It handles communication with the device and provides methods for
- * controlling the motors, reading encoder values, and getting status
- * information.
- *
- * The RoboClaw motor controller is used in various robotics applications,
- * and this class abstracts the low-level details of communication with the
- * device.
- */
+ /* The expected client is motor_driver.cpp
+  * The expected node is motor_driver_node.cpp
+  *
+  * This class provides a C++ interface to the RoboClaw motor controller.
+  * It handles communication with the device and provides methods for
+  * controlling the motors, reading encoder values, and getting status
+  * information.
+  *
+  * The RoboClaw motor controller is used in various robotics applications,
+  * and this class abstracts the low-level details of communication with the
+  * device.
+  */
 
 #define SetDWORDval(arg) \
   (uint8_t)(arg >> 24), (uint8_t)(arg >> 16), (uint8_t)(arg >> 8), (uint8_t)arg
 
 class RoboClaw {
- public:
+public:
   enum kMotor { kM1 = 0, kM2 = 1, kNone = 2 };
 
   // Bit positions used to build alarms.
@@ -53,7 +66,7 @@ class RoboClaw {
   // For a custom exception message.
   struct TRoboClawException : public std::exception {
     std::string s;
-    TRoboClawException(const char *format, ...) {
+    TRoboClawException(const char* format, ...) {
       char buffer[256];
       va_list args;
       va_start(args, format);
@@ -62,7 +75,7 @@ class RoboClaw {
       s = std::string(buffer);
     }
     ~TRoboClawException() throw() {}
-    const char *what() const throw() { return s.c_str(); }
+    const char* what() const throw() { return s.c_str(); }
   };
 
   // Holds RoboClaw encoder result.
@@ -73,20 +86,20 @@ class RoboClaw {
 
   // Constructor.
   RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
-           float m2MaxCurrent, std::string device_name, uint8_t device_port,
-           uint32_t baud_rate, bool do_debug = false,
-           bool do_low_level_debug = false);
+    float m2MaxCurrent, std::string device_name, uint8_t device_port,
+    uint32_t baud_rate, bool do_debug = false,
+    bool do_low_level_debug = false);
 
   ~RoboClaw();
 
-  void appendToReadLog(const char *format, ...) {
+  void appendToReadLog(const char* format, ...) {
     va_list args;
     va_start(args, format);
     debug_log_.appendToReadLog(format, args);
     va_end(args);
   }
 
-  void appendToWriteLog(const char *format, ...) {
+  void appendToWriteLog(const char* format, ...) {
     va_list args;
     va_start(args, format);
     debug_log_.appendToWriteLog(format, args);
@@ -94,10 +107,10 @@ class RoboClaw {
   }
 
   void doMixedSpeedAccelDist(uint32_t accel_quad_pulses_per_second,
-                             int32_t m1_quad_pulses_per_second,
-                             uint32_t m1_max_distance,
-                             int32_t m2_quad_pulses_per_second,
-                             uint32_t m2_max_distance);
+    int32_t m1_quad_pulses_per_second,
+    uint32_t m1_max_distance,
+    int32_t m2_quad_pulses_per_second,
+    uint32_t m2_max_distance);
 
   // Get RoboClaw error status bits.
   uint32_t getErrorStatus();
@@ -161,16 +174,16 @@ class RoboClaw {
   void stop();
 
   // Get singleton instance of class.
-  static RoboClaw *singleton();
+  static RoboClaw* singleton();
 
   // Read a group of sensors from the RoboClaw.
   void readSensorGroup();
 
- protected:
+protected:
   // Write a stream of bytes to the device.
   void writeN2(bool sendCRC, uint8_t cnt, ...);
 
- private:
+private:
   // True => print debug messages.
   bool do_debug_;
 
@@ -268,7 +281,7 @@ class RoboClaw {
   int baud_rate_;            // Baud rate for RoboClaw connection.
   int device_port_;          // Unix file descriptor for RoboClaw connection.
   int maxCommandRetries_;    // Maximum number of times to retry a RoboClaw
-                             // command.
+  // command.
   float maxM1Current_;       // Maximum allowed M1 current.
   float maxM2Current_;       // Maximum allowed M2 current.
   int motorAlarms_;          // Motors alarms. Bit-wise OR of contributors.
@@ -280,7 +293,7 @@ class RoboClaw {
 
   unsigned long getUlongCommandResult2(uint8_t command);
 
-  uint32_t getULongCont2(uint16_t &crc);
+  uint32_t getULongCont2(uint16_t& crc);
 
   unsigned short get2ByteCommandResult2(uint8_t command);
 
@@ -295,8 +308,8 @@ class RoboClaw {
 
   // Reset the encoders.
   bool resetEncoders(
-      ros2_roboclaw_driver::srv::ResetEncoders::Request &request,
-      ros2_roboclaw_driver::srv::ResetEncoders::Response &response);
+    ros2_roboclaw_driver::srv::ResetEncoders::Request& request,
+    ros2_roboclaw_driver::srv::ResetEncoders::Response& response);
 
   // Set the PID for motor M1.
   void setM1PID(float p, float i, float d, uint32_t qpps);
@@ -305,37 +318,38 @@ class RoboClaw {
   void setM2PID(float p, float i, float d, uint32_t qpps);
 
   // Update the running CRC result.
-  void updateCrc(uint16_t &crc, uint8_t data);
+  void updateCrc(uint16_t& crc, uint8_t data);
 
   // Write one byte to the device.
   void writeByte2(uint8_t byte);
 
-  static RoboClaw *g_singleton;
+  static RoboClaw* g_singleton;
 
   class DebugLog {
-   public:
-    DebugLog(RoboClaw *roboclaw)
-        : roboclaw_(roboclaw),
-          next_read_log_index_(0),
-          next_write_log_index_(0) {}
+  public:
+    DebugLog(RoboClaw* roboclaw)
+      : roboclaw_(roboclaw),
+      next_read_log_index_(0),
+      next_write_log_index_(0) {    
+}
     ~DebugLog() {}
 
-    void appendToReadLog(const char *format, va_list args) {
+    void appendToReadLog(const char* format, va_list args) {
       if (roboclaw_->do_debug_) {
         int written =
-            vsnprintf(&read_log_[next_read_log_index_],
-                      sizeof(read_log_) - next_read_log_index_, format, args);
+          vsnprintf(&read_log_[next_read_log_index_],
+            sizeof(read_log_) - next_read_log_index_, format, args);
         if (written > 0) {
           next_read_log_index_ += written;
         }
       }
     }
 
-    void appendToWriteLog(const char *format, va_list args) {
+    void appendToWriteLog(const char* format, va_list args) {
       if (roboclaw_->do_debug_) {
         int written =
-            vsnprintf(&write_log_[next_write_log_index_],
-                      sizeof(write_log_) - next_write_log_index_, format, args);
+          vsnprintf(&write_log_[next_write_log_index_],
+            sizeof(write_log_) - next_write_log_index_, format, args);
         if (written > 0) {
           next_write_log_index_ += written;
         }
@@ -348,7 +362,7 @@ class RoboClaw {
     void showLog() {
       if (roboclaw_->do_debug_) {
         RCUTILS_LOG_INFO("[RoboClaw::DebugLog] %s, READ: %s", write_log_,
-                         read_log_);
+          read_log_);
         read_log_[0] = '\0';
         next_read_log_index_ = 0;
         write_log_[0] = '\0';
@@ -357,7 +371,7 @@ class RoboClaw {
     }
 
     // private:
-    RoboClaw *roboclaw_;  // Pointer to the RoboClaw instance (if needed)
+    RoboClaw* roboclaw_;  // Pointer to the RoboClaw instance (if needed)
     char read_log_[256];
     char write_log_[256];
     uint16_t next_read_log_index_;
@@ -378,10 +392,10 @@ class RoboClaw {
   friend class CmdSetEncoderValue;
   friend class CmdSetPid;
 
- protected:
+protected:
   DebugLog debug_log_;
 
-  static const char *motorNames_[];
+  static const char* motorNames_[];
   static std::mutex
-      buffered_command_mutex_;  // Global mutex for buffered commands
+    buffered_command_mutex_;  // Global mutex for buffered commands
 };

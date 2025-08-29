@@ -1,3 +1,22 @@
+// SPDX-License-Identifier: Apache-2.0
+/****************************************************************************
+ *
+ *  Copyright (c) 2025 Michael Wimble. All rights reserved.
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ ****************************************************************************/
+
 #include "roboclaw.h"
 
 #include <fcntl.h>
@@ -29,28 +48,28 @@
 #include "roboclaw_cmd_set_pid.h"
 #include "ros2_roboclaw_driver/srv/reset_encoders.h"
 
-const char *RoboClaw::motorNames_[] = {"M1", "M2", "NONE"};
+const char* RoboClaw::motorNames_[] = { "M1", "M2", "NONE" };
 
 // Initialize the static mutex
 std::mutex RoboClaw::buffered_command_mutex_;
 
 RoboClaw::RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
-                   float m2MaxCurrent, std::string device_name,
-                   uint8_t device_port, uint32_t baud_rate, bool(do_debug),
-                   bool do_low_level_debug)
-    : do_debug_(do_debug),
-      do_low_level_debug_(do_low_level_debug),
-      baud_rate_(baud_rate),
-      device_port_(device_port),
-      maxCommandRetries_(3),
-      maxM1Current_(m1MaxCurrent),
-      maxM2Current_(m2MaxCurrent),
-      device_name_(device_name),
-      portAddress_(128),
-      debug_log_(this) {
+  float m2MaxCurrent, std::string device_name,
+  uint8_t device_port, uint32_t baud_rate, bool(do_debug),
+  bool do_low_level_debug)
+  : do_debug_(do_debug),
+  do_low_level_debug_(do_low_level_debug),
+  baud_rate_(baud_rate),
+  device_port_(device_port),
+  maxCommandRetries_(3),
+  maxM1Current_(m1MaxCurrent),
+  maxM2Current_(m2MaxCurrent),
+  device_name_(device_name),
+  portAddress_(128),
+  debug_log_(this) {
   openPort();
   RCUTILS_LOG_INFO("[RoboClaw::RoboClaw] RoboClaw software version: %s",
-                   getVersion().c_str());
+    getVersion().c_str());
   setM1PID(m1Pid.p, m1Pid.i, m1Pid.d, m1Pid.qpps);
   setM2PID(m2Pid.p, m2Pid.i, m2Pid.d, m2Pid.qpps);
   CmdSetEncoderValue m1(*this, kM1, 0);
@@ -69,13 +88,13 @@ RoboClaw::RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
 RoboClaw::~RoboClaw() {}
 
 void RoboClaw::doMixedSpeedAccelDist(uint32_t accel_quad_pulses_per_second,
-                                     int32_t m1_quad_pulses_per_second,
-                                     uint32_t m1_max_distance,
-                                     int32_t m2_quad_pulses_per_second,
-                                     uint32_t m2_max_distance) {
+  int32_t m1_quad_pulses_per_second,
+  uint32_t m1_max_distance,
+  int32_t m2_quad_pulses_per_second,
+  uint32_t m2_max_distance) {
   CmdDoBufferedM1M2DriveSpeedAccelDistance command(
-      *this, accel_quad_pulses_per_second, m1_quad_pulses_per_second,
-      m1_max_distance, m2_quad_pulses_per_second, m2_max_distance);
+    *this, accel_quad_pulses_per_second, m1_quad_pulses_per_second,
+    m1_max_distance, m2_quad_pulses_per_second, m2_max_distance);
   command.execute();
 }
 
@@ -165,11 +184,11 @@ unsigned short RoboClaw::get2ByteCommandResult2(uint8_t command) {
     return result;
   } else {
     RCUTILS_LOG_ERROR(
-        "[RoboClaw::get2ByteCommandResult2] invalid CRC expected: "
-        "0x%02X, got: 0x%02X",
-        crc, responseCrc);
+      "[RoboClaw::get2ByteCommandResult2] invalid CRC expected: "
+      "0x%02X, got: 0x%02X",
+      crc, responseCrc);
     throw new TRoboClawException(
-        "[RoboClaw::get2ByteCommandResult2 INVALID CRC");
+      "[RoboClaw::get2ByteCommandResult2 INVALID CRC");
     return 0;
   }
 }
@@ -214,15 +233,15 @@ unsigned long RoboClaw::getUlongCommandResult2(uint8_t command) {
   }
 
   RCUTILS_LOG_ERROR(
-      "[RoboClaw::getUlongCommandResult2] Expected CRC of: 0x%02X, but "
-      "got: 0x%02X",
-      int(crc), int(responseCrc));
+    "[RoboClaw::getUlongCommandResult2] Expected CRC of: 0x%02X, but "
+    "got: 0x%02X",
+    int(crc), int(responseCrc));
   throw new TRoboClawException(
-      "[RoboClaw::getUlongCommandResult2] INVALID CRC");
+    "[RoboClaw::getUlongCommandResult2] INVALID CRC");
   return 0;
 }
 
-uint32_t RoboClaw::getULongCont2(uint16_t &crc) {
+uint32_t RoboClaw::getULongCont2(uint16_t& crc) {
   uint32_t result = 0;
   uint8_t datum = readByteWithTimeout2();
   result |= datum << 24;
@@ -284,9 +303,9 @@ int32_t RoboClaw::getVelocityResult(uint8_t command) {
   }
 
   RCUTILS_LOG_ERROR(
-      "[RoboClaw::getVelocityResult] Expected CRC of: 0x%02X, but got: "
-      "0x%02X",
-      int(crc), int(responseCrc));
+    "[RoboClaw::getVelocityResult] Expected CRC of: 0x%02X, but got: "
+    "0x%02X",
+    int(crc), int(responseCrc));
   throw new TRoboClawException("[RoboClaw::getVelocityResult] INVALID CRC");
   return 0;
 }
@@ -316,15 +335,15 @@ std::string RoboClaw::getVersion() {
 
 void RoboClaw::openPort() {
   RCUTILS_LOG_INFO("[RoboClaw::openPort] about to open port: %s",
-                   device_name_.c_str());
+    device_name_.c_str());
   device_port_ = open(device_name_.c_str(), O_RDWR | O_NOCTTY);
   if (device_port_ < 0) {
     RCUTILS_LOG_ERROR(
-        "[RoboClaw::openPort] Unable to open USB port: %s, errno: (%d) "
-        "%s",
-        device_name_.c_str(), errno, strerror(errno));
+      "[RoboClaw::openPort] Unable to open USB port: %s, errno: (%d) "
+      "%s",
+      device_name_.c_str(), errno, strerror(errno));
     throw new TRoboClawException(
-        "[RoboClaw::openPort] Unable to open USB port");
+      "[RoboClaw::openPort] Unable to open USB port");
   }
 
   // Fetch the current port settings.
@@ -334,61 +353,61 @@ void RoboClaw::openPort() {
   ret = tcgetattr(device_port_, &portOptions);
   if (ret < 0) {
     RCUTILS_LOG_ERROR(
-        "[RoboClaw::openPort] Unable to get terminal options "
-        "(tcgetattr), error: %d: %s",
-        errno, strerror(errno));
+      "[RoboClaw::openPort] Unable to get terminal options "
+      "(tcgetattr), error: %d: %s",
+      errno, strerror(errno));
     throw new TRoboClawException(
-        "[RoboClaw::openPort] Unable to get terminal options (tcgetattr)");
+      "[RoboClaw::openPort] Unable to get terminal options (tcgetattr)");
   }
 
   if (cfsetispeed(&portOptions, B38400) < 0) {
     RCUTILS_LOG_ERROR(
-        "[RoboClaw::openPort] Unable to set terminal speed "
-        "(cfsetispeed)");
+      "[RoboClaw::openPort] Unable to set terminal speed "
+      "(cfsetispeed)");
     throw new TRoboClawException(
-        "[RoboClaw::openPort] Unable to set terminal speed "
-        "(cfsetispeed)");
+      "[RoboClaw::openPort] Unable to set terminal speed "
+      "(cfsetispeed)");
   }
 
   speed_t baud;
   switch (baud_rate_) {
-    case 9600:
-      baud = B9600;
-      break;
-    case 19200:
-      baud = B19200;
-      break;
-    case 38400:
-      baud = B38400;
-      break;
-    case 57600:
-      baud = B57600;
-      break;
-    case 115200:
-      baud = B115200;
-      break;
-    default:
-      RCUTILS_LOG_ERROR("[RoboClaw::openPort] Unsupported baud rate: %u",
-                        baud_rate_);
-      throw new TRoboClawException(
-          "[RoboClaw::openPort] Unsupported baud rate");
+  case 9600:
+    baud = B9600;
+    break;
+  case 19200:
+    baud = B19200;
+    break;
+  case 38400:
+    baud = B38400;
+    break;
+  case 57600:
+    baud = B57600;
+    break;
+  case 115200:
+    baud = B115200;
+    break;
+  default:
+    RCUTILS_LOG_ERROR("[RoboClaw::openPort] Unsupported baud rate: %u",
+      baud_rate_);
+    throw new TRoboClawException(
+      "[RoboClaw::openPort] Unsupported baud rate");
   }
 
   if (cfsetispeed(&portOptions, baud) < 0) {
     RCUTILS_LOG_ERROR(
-        "[RoboClaw::openPort] Unable to set terminal input speed "
-        "(cfsetispeed)");
+      "[RoboClaw::openPort] Unable to set terminal input speed "
+      "(cfsetispeed)");
     throw new TRoboClawException(
-        "[RoboClaw::openPort] Unable to set terminal input speed "
-        "(cfsetispeed)");
+      "[RoboClaw::openPort] Unable to set terminal input speed "
+      "(cfsetispeed)");
   }
   if (cfsetospeed(&portOptions, B38400) < 0) {
     RCUTILS_LOG_ERROR(
-        "[RoboClaw::openPort] Unable to set terminal speed "
-        "(cfsetospeed)");
+      "[RoboClaw::openPort] Unable to set terminal speed "
+      "(cfsetospeed)");
     throw new TRoboClawException(
-        "[RoboClaw::openPort] Unable to set terminal speed "
-        "(cfsetospeed)");
+      "[RoboClaw::openPort] Unable to set terminal speed "
+      "(cfsetospeed)");
   }
 
   // Configure other settings
@@ -398,20 +417,20 @@ void RoboClaw::openPort() {
   portOptions.c_cflag |= CS8;       // 8 data bits
   portOptions.c_cflag &= ~CRTSCTS;  // Disable hardware flow control
   portOptions.c_cflag |=
-      CREAD | CLOCAL;  // Enable read and ignore control lines
+    CREAD | CLOCAL;  // Enable read and ignore control lines
 
   portOptions.c_lflag &= ~ICANON;  // Disable canonical mode
   portOptions.c_lflag &= ~ECHO;    // Disable echo
   portOptions.c_lflag &= ~ECHOE;   // Disable erasure
   portOptions.c_lflag &= ~ECHONL;  // Disable new-line echo
   portOptions.c_lflag &=
-      ~ISIG;  // Disable interpretation of INTR, QUIT and SUSP
+    ~ISIG;  // Disable interpretation of INTR, QUIT and SUSP
 
   portOptions.c_iflag &=
-      ~(IXON | IXOFF | IXANY);  // Disable software flow control
+    ~(IXON | IXOFF | IXANY);  // Disable software flow control
   portOptions.c_iflag &=
-      ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR |
-        ICRNL);  // Disable special handling of received bytes
+    ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR |
+      ICRNL);  // Disable special handling of received bytes
 
   portOptions.c_oflag &= ~OPOST;  // Disable output processing
 
@@ -420,11 +439,11 @@ void RoboClaw::openPort() {
 
   if (tcsetattr(device_port_, TCSANOW, &portOptions) != 0) {
     RCUTILS_LOG_ERROR(
-        "[RoboClaw::openPort] Unable to set terminal options "
-        "(tcsetattr)");
+      "[RoboClaw::openPort] Unable to set terminal options "
+      "(tcsetattr)");
     throw new TRoboClawException(
-        "[RoboClaw::openPort] Unable to set terminal options "
-        "(tcsetattr)");
+      "[RoboClaw::openPort] Unable to set terminal options "
+      "(tcsetattr)");
   }
 }
 
@@ -436,29 +455,29 @@ uint8_t RoboClaw::readByteWithTimeout2() {
   int retval = poll(ufd, 1, 11);
   if (retval < 0) {
     RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout2 Poll failed (%d) %s",
-                      errno, strerror(errno));
+      errno, strerror(errno));
     throw new TRoboClawException("[RoboClaw::readByteWithTimeout2 Read error");
   } else if (retval == 0) {
     std::stringstream ev;
     ev << "[RoboClaw::readByteWithTimeout2 TIMEOUT revents: " << std::hex
-       << ufd[0].revents;
+      << ufd[0].revents;
     RCUTILS_LOG_ERROR(ev.str().c_str());
     throw new TRoboClawException("[RoboClaw::readByteWithTimeout2 TIMEOUT");
   } else if (ufd[0].revents & POLLERR) {
     RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout2 Error on socket");
     restartPort();
     throw new TRoboClawException(
-        "[RoboClaw::readByteWithTimeout2 Error on socket");
+      "[RoboClaw::readByteWithTimeout2 Error on socket");
   } else if (ufd[0].revents & POLLIN) {
     unsigned char buffer[1];
     ssize_t bytesRead = ::read(device_port_, buffer, sizeof(buffer));
     if (bytesRead != 1) {
       RCUTILS_LOG_ERROR(
-          "[RoboClaw::readByteWithTimeout2 Failed to read 1 byte, read: "
-          "%d",
-          (int)bytesRead);
+        "[RoboClaw::readByteWithTimeout2 Failed to read 1 byte, read: "
+        "%d",
+        (int)bytesRead);
       throw TRoboClawException(
-          "[RoboClaw::readByteWithTimeout2 Failed to read 1 byte");
+        "[RoboClaw::readByteWithTimeout2 Failed to read 1 byte");
     }
 
     if (do_debug_ || do_low_level_debug_) {
@@ -472,7 +491,7 @@ uint8_t RoboClaw::readByteWithTimeout2() {
   } else {
     RCUTILS_LOG_ERROR("[RoboClaw::readByteWithTimeout2 Unhandled case");
     throw new TRoboClawException(
-        "[RoboClaw::readByteWithTimeout2 Unhandled case");
+      "[RoboClaw::readByteWithTimeout2 Unhandled case");
   }
 
   return 0;
@@ -483,10 +502,10 @@ void RoboClaw::readSensorGroup() {
     TPIDQ m1_read_velocity_pidq_result;
     TPIDQ m2_read_velocity_pidq_result;
     CmdReadMotorVelocityPIDQ cmd_m1_read_motor_velocity_pidq(
-        *this, kM1, m1_read_velocity_pidq_result);
+      *this, kM1, m1_read_velocity_pidq_result);
     cmd_m1_read_motor_velocity_pidq.execute();
     CmdReadMotorVelocityPIDQ cmd_m2_read_motor_velocity_pidq(
-        *this, kM2, m2_read_velocity_pidq_result);
+      *this, kM2, m2_read_velocity_pidq_result);
     cmd_m2_read_motor_velocity_pidq.execute();
     float logic_battery_level = 0.0;
     CmdReadLogicBatteryVoltage cmd_logic_battery(*this, logic_battery_level);
@@ -535,8 +554,8 @@ void RoboClaw::readSensorGroup() {
 }
 
 bool RoboClaw::resetEncoders(
-    ros2_roboclaw_driver::srv::ResetEncoders::Request &request,
-    ros2_roboclaw_driver::srv::ResetEncoders::Response &response) {
+  ros2_roboclaw_driver::srv::ResetEncoders::Request& request,
+  ros2_roboclaw_driver::srv::ResetEncoders::Response& response) {
   try {
     CmdSetEncoderValue m1(*this, kM1, request.left);
     CmdSetEncoderValue m2(*this, kM2, request.right);
@@ -570,7 +589,7 @@ void RoboClaw::stop() {
   stopCommand.execute();
 }
 
-void RoboClaw::updateCrc(uint16_t &crc, uint8_t data) {
+void RoboClaw::updateCrc(uint16_t& crc, uint8_t data) {
   crc = crc ^ ((uint16_t)data << 8);
   for (int i = 0; i < 8; i++) {
     if (crc & 0x8000)
@@ -604,12 +623,12 @@ void RoboClaw::writeByte2(uint8_t byte) {
 
   if (result != 1) {
     RCUTILS_LOG_ERROR(
-        "[RoboClaw::writeByte2to write one byte, result: %d, "
-        "errno: %d)",
-        (int)result, errno);
+      "[RoboClaw::writeByte2to write one byte, result: %d, "
+      "errno: %d)",
+      (int)result, errno);
     restartPort();
     throw new TRoboClawException(
-        "[RoboClaw::writeByte2 Unable to write one byte");
+      "[RoboClaw::writeByte2 Unable to write one byte");
   }
 }
 
@@ -634,16 +653,16 @@ void RoboClaw::writeN2(bool sendCRC, uint8_t cnt, ...) {
     if (response != 0xFF) {
       char msg[128];
       snprintf(
-          msg, sizeof(msg),
-          "[RoboClaw::writeN2] Invalid ACK response, expected 0xFF but got "
-          "0x%02X",
-          response);
+        msg, sizeof(msg),
+        "[RoboClaw::writeN2] Invalid ACK response, expected 0xFF but got "
+        "0x%02X",
+        response);
       RCUTILS_LOG_ERROR("%s", msg);
       throw new TRoboClawException(msg);
     }
   }
 }
 
-RoboClaw *RoboClaw::singleton() { return g_singleton; }
+RoboClaw* RoboClaw::singleton() { return g_singleton; }
 
-RoboClaw *RoboClaw::g_singleton = nullptr;
+RoboClaw* RoboClaw::g_singleton = nullptr;
