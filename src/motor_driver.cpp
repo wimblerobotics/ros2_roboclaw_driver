@@ -1,18 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-/****************************************************************************
- *  Copyright (c) 2025 Michael Wimble. All rights reserved.
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *      http://www.apache.org/licenses/LICENSE-2.0
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- ****************************************************************************/
+// Copyright (c) 2025 Michael Wimble. https://github.com/wimblerobotics/ros2_roboclaw_driver
 
 #include "motor_driver.h"
+#include "io_executor.h"
 
 #include <math.h>
 #include <rcutils/logging_macros.h>
@@ -143,26 +133,30 @@ void MotorDriver::cmdVelCallback(
     double yaw_velocity =
       std::min(std::max((float)msg->angular.z, -max_angular_velocity_),
         max_angular_velocity_);
-    if ((msg->linear.x == 0) && (msg->angular.z == 0)) {
-      RoboClaw::singleton()->stop();
-    } else if ((fabs(x_velocity) > 0.01) || (fabs(yaw_velocity) > 0.01)) {
-      const double m1_desired_velocity =
-        x_velocity - (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
-      const double m2_desired_velocity =
-        x_velocity + (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
+    IoExecutor::instance().enqueue([=]() {
+      if ((msg->linear.x == 0) && (msg->angular.z == 0)) {
+        RoboClaw::singleton()->stop();
+        return;
+      }
+      if ((fabs(x_velocity) > 0.01) || (fabs(yaw_velocity) > 0.01)) {
+        const double m1_desired_velocity =
+          x_velocity - (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
+        const double m2_desired_velocity =
+          x_velocity + (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
 
-      const int32_t m1_quad_pulses_per_second =
-        m1_desired_velocity * quad_pulses_per_meter_;
-      const int32_t m2_quad_pulses_per_second =
-        m2_desired_velocity * quad_pulses_per_meter_;
-      const int32_t m1_max_distance =
-        fabs(m1_quad_pulses_per_second * max_seconds_uncommanded_travel_);
-      const int32_t m2_max_distance =
-        fabs(m2_quad_pulses_per_second * max_seconds_uncommanded_travel_);
-      RoboClaw::singleton()->doMixedSpeedAccelDist(
-        accel_quad_pulses_per_second_, m1_quad_pulses_per_second,
-        m1_max_distance, m2_quad_pulses_per_second, m2_max_distance);
-    }
+        const int32_t m1_quad_pulses_per_second =
+          m1_desired_velocity * quad_pulses_per_meter_;
+        const int32_t m2_quad_pulses_per_second =
+          m2_desired_velocity * quad_pulses_per_meter_;
+        const int32_t m1_max_distance =
+          fabs(m1_quad_pulses_per_second * max_seconds_uncommanded_travel_);
+        const int32_t m2_max_distance =
+          fabs(m2_quad_pulses_per_second * max_seconds_uncommanded_travel_);
+        RoboClaw::singleton()->doMixedSpeedAccelDist(
+          accel_quad_pulses_per_second_, m1_quad_pulses_per_second,
+          m1_max_distance, m2_quad_pulses_per_second, m2_max_distance);
+      }
+      }, /*high_priority=*/true);
   }
 }
 
