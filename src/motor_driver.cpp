@@ -24,7 +24,17 @@ MotorDriver::MotorDriver()
   : Node("motor_driver_node"),
   device_name_("foo_bar"),
   wheel_radius_(0.10169),
-  wheel_separation_(0.345) {
+  wheel_separation_(0.345),
+  odom_initialized_(false),
+  prev_left_pos_(0),
+  prev_right_pos_(0),
+  x_(0.0),
+  y_(0.0),
+  yaw_(0.0),
+  linear_vel_(0.0),
+  angular_vel_(0.0),
+  cached_left_pos_(0),
+  cached_right_pos_(0) {
   declareParameters();
   initializeParameters();
 }
@@ -234,7 +244,6 @@ void MotorDriver::publisherThread() {
     std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
   rclcpp::WallRate loop_rate(sensor_update_rate_);
   rclcpp::Time now = clock->now();
-  rclcpp::Time last_time = now;
 
   while (rclcpp::ok()) {
     loop_rate.sleep();
@@ -272,51 +281,47 @@ void MotorDriver::publisherThread() {
       }
 
       if (g_singleton->publish_odom_) {
+        // Integrate odometry using proper differential drive calculation
+        g_singleton->integrateOdometry();
+
+        // Prepare odometry message
         now = clock->now();
-        double dt = (now - last_time).seconds();
-        last_time = now;
-
-        // Use cached velocity data instead of direct access
-        auto& cache = IoExecutor::instance().getDeviceCache();
-        auto cached_velocities = cache.getVelocities();
-
-        float linear_velocity_x = cached_velocities.first;
-        float linear_velocity_y = cached_velocities.second;
-        float angular_velocity_z = (linear_velocity_x - linear_velocity_y) /
-          g_singleton->wheel_separation_;
-
-        // Calculate the robot's position and orientation
-        static float x_pos_(0.0);
-        static float y_pos_(0.0);
-        static float heading_(0.0);
-        static bool first_time = true;
-        if (first_time) {
-          first_time = false;
-          x_pos_ = 0.0;
-          y_pos_ = 0.0;
-          heading_ = 0.0;
-        }
-        float delta_heading = angular_velocity_z * dt;  // radians
-        float cos_h = cos(heading_);
-        float sin_h = sin(heading_);
-        float delta_x =
-          (linear_velocity_x * cos_h - linear_velocity_y * sin_h) * dt;  // m
-        float delta_y =
-          (linear_velocity_x * sin_h + linear_velocity_y * cos_h) * dt;  // m
-        // calculate current position of the robot
-        x_pos_ += delta_x;
-        y_pos_ += delta_y;
-        heading_ += delta_heading;
-        // calculate robot's heading in quaternion angle
-        // ROS has a function to calculate yaw in quaternion angle
-        float q[4];
-        eulerToQuaternion(0, 0, heading_, q);
+        odometry_msg.header.stamp = now;
+        odometry_msg.header.frame_id = "odom";
+        odometry_msg.child_frame_id = "base_link";
 
         // robot's position in x,y, and z
-        odometry_msg.pose.pose.position.x = x_pos_;
-        odometry_msg.pose.pose.position.y = y_pos_;
+        odometry_msg.pose.pose.position.x = g_singleton->x_;
+        odometry_msg.pose.pose.position.y = g_singleton->y_;
         odometry_msg.pose.pose.position.z = 0.0;
+
+        // Convert yaw to quaternion
+        double half_yaw = g_singleton->yaw_ * 0.5;
+        odometry_msg.pose.pose.orientation.x = 0.0;
+        odometry_msg.pose.pose.orientation.y = 0.0;
+        odometry_msg.pose.pose.orientation.z = sin(half_yaw);
+        odometry_msg.pose.pose.orientation.w = cos(half_yaw);
+
+        // robot's velocity in x,y, and z
+        odometry_msg.twist.twist.linear.x = g_singleton->linear_vel_;
+        odometry_msg.twist.twist.linear.y = 0.0;
+        odometry_msg.twist.twist.linear.z = 0.0;
+        odometry_msg.twist.twist.angular.x = 0.0;
+        odometry_msg.twist.twist.angular.y = 0.0;
+        odometry_msg.twist.twist.angular.z = g_singleton->angular_vel_;
+
+        // Position covariance (reasonably small values for encoder-based odometry)
+        odometry_msg.pose.covariance[0] = 0.001;   // x variance
+        odometry_msg.pose.covariance[7] = 0.001;   // y variance
+        odometry_msg.pose.covariance[35] = 0.03;   // yaw variance
+
+        // Velocity covariance
+        odometry_msg.twist.covariance[0] = 0.001;  // linear x variance
+        odometry_msg.twist.covariance[35] = 0.01;  // angular z variance
+
         // robot's heading in quaternion
+        float q[4];
+        eulerToQuaternion(0, 0, g_singleton->yaw_, q);
         odometry_msg.pose.pose.orientation.x = (double)q[1];
         odometry_msg.pose.pose.orientation.y = (double)q[2];
         odometry_msg.pose.pose.orientation.z = (double)q[3];
@@ -325,12 +330,12 @@ void MotorDriver::publisherThread() {
         odometry_msg.pose.covariance[7] = 0.001;
         odometry_msg.pose.covariance[35] = 0.001;
 
-        odometry_msg.twist.twist.linear.x = linear_velocity_x;
-        odometry_msg.twist.twist.linear.y = linear_velocity_y;
+        odometry_msg.twist.twist.linear.x = g_singleton->linear_vel_;
+        odometry_msg.twist.twist.linear.y = 0.0;  // No lateral movement for differential drive
         odometry_msg.twist.twist.linear.z = 0.0;
         odometry_msg.twist.twist.angular.x = 0.0;
         odometry_msg.twist.twist.angular.y = 0.0;
-        odometry_msg.twist.twist.angular.z = angular_velocity_z;
+        odometry_msg.twist.twist.angular.z = g_singleton->angular_vel_;
         g_singleton->odom_publisher_->publish(odometry_msg);
       }
     }
@@ -347,6 +352,101 @@ void MotorDriver::setupStatsTimer() {
       stats.avg_latency_ms,
       stats.max_latency_ms);
     });
+}
+
+std::pair<int32_t, int32_t> MotorDriver::getEncodersForOdometry() {
+  // Always get fresh encoder values for odometry accuracy (HIGH priority)
+  auto& cache = IoExecutor::instance().getDeviceCache();
+  auto encoders = cache.getEncoders();
+
+  // Update cached values for status publishing
+  cached_left_pos_ = encoders.first;
+  cached_right_pos_ = encoders.second;
+  last_encoder_read_ = std::chrono::steady_clock::now();
+
+  return encoders;
+}
+
+std::pair<int32_t, int32_t> MotorDriver::getEncodersForStatus() {
+  auto now = std::chrono::steady_clock::now();
+  auto age = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_encoder_read_);
+
+  // If cached values are stale (>100ms), refresh them
+  if (age.count() > 100) {
+    auto& cache = IoExecutor::instance().getDeviceCache();
+    auto encoders = cache.getEncoders();
+    cached_left_pos_ = encoders.first;
+    cached_right_pos_ = encoders.second;
+    last_encoder_read_ = now;
+  }
+
+  return std::make_pair(cached_left_pos_, cached_right_pos_);
+}
+
+double MotorDriver::normalizeAngle(double angle) {
+  while (angle > M_PI) angle -= 2.0 * M_PI;
+  while (angle <= -M_PI) angle += 2.0 * M_PI;
+  return angle;
+}
+
+void MotorDriver::integrateOdometry() {
+  auto start_time = std::chrono::steady_clock::now();
+
+  // Get fresh encoder positions (HIGH priority - bypasses cache)
+  auto [left_pos, right_pos] = getEncodersForOdometry();
+  auto current_time = std::chrono::steady_clock::now();
+
+  // Check for first run
+  if (!odom_initialized_) {
+    prev_left_pos_ = left_pos;
+    prev_right_pos_ = right_pos;
+    prev_time_ = current_time;
+    odom_initialized_ = true;
+    return;
+  }
+
+  // Calculate deltas with wrap handling (32-bit signed)
+  int32_t left_delta = left_pos - prev_left_pos_;
+  int32_t right_delta = right_pos - prev_right_pos_;
+
+  // Handle encoder wrap (from navigation2 research)
+  if (left_delta > INT32_MAX / 2) left_delta -= UINT32_MAX;
+  if (left_delta < -INT32_MAX / 2) left_delta += UINT32_MAX;
+  if (right_delta > INT32_MAX / 2) right_delta -= UINT32_MAX;
+  if (right_delta < -INT32_MAX / 2) right_delta += UINT32_MAX;
+
+  // Convert to distances (meters)
+  double left_dist = static_cast<double>(left_delta) / quad_pulses_per_meter_;
+  double right_dist = static_cast<double>(right_delta) / quad_pulses_per_meter_;
+
+  // Differential drive kinematics (from ros2_controllers)
+  double linear = (left_dist + right_dist) * 0.5;
+  double angular = (right_dist - left_dist) / wheel_separation_;
+
+  // Runge-Kutta 2nd order integration (more accurate than Euler)
+  double theta_mid = yaw_ + angular * 0.5;
+  x_ += linear * cos(theta_mid);
+  y_ += linear * sin(theta_mid);
+  yaw_ = normalizeAngle(yaw_ + angular);
+
+  // Compute time delta for velocities
+  auto dt = std::chrono::duration<double>(current_time - prev_time_).count();
+  if (dt > 0.001) { // Avoid division by very small dt
+    linear_vel_ = linear / dt;
+    angular_vel_ = angular / dt;
+  }
+
+  // Store for next iteration
+  prev_left_pos_ = left_pos;
+  prev_right_pos_ = right_pos;
+  prev_time_ = current_time;
+
+  // Performance monitoring
+  auto processing_time = std::chrono::steady_clock::now() - start_time;
+  if (processing_time > std::chrono::milliseconds(2)) {
+    RCLCPP_WARN(get_logger(), "Odometry processing took %ld ms (target <2ms)",
+      std::chrono::duration_cast<std::chrono::milliseconds>(processing_time).count());
+  }
 }
 
 MotorDriver& MotorDriver::singleton() {

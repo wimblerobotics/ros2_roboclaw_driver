@@ -137,8 +137,8 @@ int main(int argc, char* argv[]) {
             auto temps = cache.getTemperatures();
             roboClawStatus.temperature = temps.first;
 
-            // Encoder values and status from cache
-            auto encoders = cache.getEncoders();
+            // Encoder values from smart cache (uses cached values unless stale)
+            auto encoders = motorDriver.getEncodersForStatus();
             roboClawStatus.m1_encoder_value = encoders.first;
             roboClawStatus.m2_encoder_value = encoders.second;
 

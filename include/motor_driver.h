@@ -14,6 +14,7 @@ public:
   static MotorDriver& singleton();
 
   void onInit(rclcpp::Node::SharedPtr node);
+  std::pair<int32_t, int32_t> getEncodersForStatus();
 
 private:
   void declareParameters();
@@ -23,6 +24,11 @@ private:
   void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg) const;
   void publisherThread();
   void setupStatsTimer();
+
+  // Odometry methods
+  void integrateOdometry();
+  double normalizeAngle(double angle);
+  std::pair<int32_t, int32_t> getEncodersForOdometry();
 
   rclcpp::Node::SharedPtr node_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmdVelSub_;
@@ -59,6 +65,22 @@ private:
   float wheel_separation_;
 
   rclcpp::TimerBase::SharedPtr stats_timer_;
+
+  // Odometry state variables
+  bool odom_initialized_;
+  int32_t prev_left_pos_;
+  int32_t prev_right_pos_;
+  std::chrono::steady_clock::time_point prev_time_;
+  double x_;
+  double y_;
+  double yaw_;
+  double linear_vel_;
+  double angular_vel_;
+
+  // Cached encoder values for status publishing
+  std::chrono::steady_clock::time_point last_encoder_read_;
+  int32_t cached_left_pos_;
+  int32_t cached_right_pos_;
 
   static MotorDriver* g_singleton;
 };
