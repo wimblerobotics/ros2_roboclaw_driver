@@ -3,6 +3,7 @@
 
 #include "motor_driver.h"
 #include "io_executor.h"
+#include <iomanip>
 
 #include <math.h>
 #include <rcutils/logging_macros.h>
@@ -203,6 +204,7 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
   if (publish_joint_states_ || publish_odom_) {
     this->publisher_thread_ = std::thread(&MotorDriver::publisherThread, this);
   }
+  setupStatsTimer();
 }
 
 void MotorDriver::eulerToQuaternion(float roll, float pitch, float yaw,
@@ -230,8 +232,7 @@ void MotorDriver::publisherThread() {
   while (rclcpp::ok()) {
     loop_rate.sleep();
     if (RoboClaw::singleton() != nullptr) {
-      RoboClaw::singleton()->readSensorGroup();
-
+      IoExecutor::instance().enqueue([]() { RoboClaw::singleton()->readSensorGroup(); }, false);
       nav_msgs::msg::Odometry odometry_msg;
       sensor_msgs::msg::JointState joint_state_msg;
 
@@ -263,9 +264,9 @@ void MotorDriver::publisherThread() {
         last_time = now;
 
         float linear_velocity_x =
-          RoboClaw::singleton()->getVelocity(RoboClaw::kM1) * 1.0;
+          RoboClaw::singleton()->getVelocity(RoboClaw::kM1);
         float linear_velocity_y =
-          RoboClaw::singleton()->getVelocity(RoboClaw::kM2) * 1.0;
+          RoboClaw::singleton()->getVelocity(RoboClaw::kM2);
         float angular_velocity_z = (linear_velocity_x - linear_velocity_y) /
           g_singleton->wheel_separation_;
 
@@ -319,6 +320,16 @@ void MotorDriver::publisherThread() {
       }
     }
   }
+}
+
+void MotorDriver::setupStatsTimer() {
+  stats_timer_ = this->create_wall_timer(std::chrono::seconds(5), [this]() {
+    auto stats = IoExecutor::instance().getStats();
+    RCUTILS_LOG_INFO("[IoExecutor] q_high=%zu q_norm=%zu executed=%llu last_latency_ms=%.3f",
+      stats.queued_high, stats.queued_normal,
+      static_cast<unsigned long long>(stats.executed),
+      stats.last_latency_ms);
+    });
 }
 
 MotorDriver& MotorDriver::singleton() {

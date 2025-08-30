@@ -22,6 +22,7 @@ private:
   void logParameters() const;
   void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg) const;
   void publisherThread();
+  void setupStatsTimer();
 
   rclcpp::Node::SharedPtr node_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmdVelSub_;
@@ -56,6 +57,8 @@ private:
   float sensor_update_rate_;  // Hz
   float wheel_radius_;
   float wheel_separation_;
+
+  rclcpp::TimerBase::SharedPtr stats_timer_;
 
   static MotorDriver* g_singleton;
 };
