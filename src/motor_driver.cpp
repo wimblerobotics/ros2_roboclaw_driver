@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <thread>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <rclcpp/qos.hpp>
@@ -134,7 +135,9 @@ void MotorDriver::cmdVelCallback(
     double yaw_velocity =
       std::min(std::max((float)msg->angular.z, -max_angular_velocity_),
         max_angular_velocity_);
-    IoExecutor::instance().enqueue([=]() {
+
+    // Use new motor command enqueue method with automatic deduplication
+    IoExecutor::instance().enqueueMotorCommand([=]() {
       if ((msg->linear.x == 0) && (msg->angular.z == 0)) {
         RoboClaw::singleton()->stop();
         return;
@@ -157,7 +160,7 @@ void MotorDriver::cmdVelCallback(
           accel_quad_pulses_per_second_, m1_quad_pulses_per_second,
           m1_max_distance, m2_quad_pulses_per_second, m2_max_distance);
       }
-      }, /*high_priority=*/true);
+      });
   }
 }
 
@@ -173,8 +176,12 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
   new RoboClaw(m1Pid, m2Pid, m1_max_current_, m2_max_current_,
     device_name_.c_str(), device_port_, baud_rate_, do_debug_,
     do_low_level_debug_);
+
+  // Allow some time for initial sensor readings
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
   RCUTILS_LOG_INFO("Main battery: %f",
-    RoboClaw::singleton()->getMainBatteryLevel());
+    IoExecutor::instance().getDeviceCache().getMainBatteryVoltage());
 
   auto qos = rclcpp::QoS(
     rclcpp::QoSInitialization(RMW_QOS_POLICY_HISTORY_KEEP_LAST, 10));
@@ -232,7 +239,9 @@ void MotorDriver::publisherThread() {
   while (rclcpp::ok()) {
     loop_rate.sleep();
     if (RoboClaw::singleton() != nullptr) {
-      IoExecutor::instance().enqueue([]() { RoboClaw::singleton()->readSensorGroup(); }, false);
+      // Schedule incremental sensor reading instead of bulk read
+      IoExecutor::instance().scheduleIncrementalRead();
+
       nav_msgs::msg::Odometry odometry_msg;
       sensor_msgs::msg::JointState joint_state_msg;
 
@@ -243,8 +252,12 @@ void MotorDriver::publisherThread() {
       joint_state_msg.header.frame_id = "base_link";
 
       if (g_singleton->publish_joint_states_) {
-        float encoder_left = RoboClaw::singleton()->getM1Encoder() * 1.0;
-        float encoder_right = RoboClaw::singleton()->getM2Encoder() * 1.0;
+        // Use cached encoder data instead of direct access
+        auto& cache = IoExecutor::instance().getDeviceCache();
+        auto cached_encoders = cache.getEncoders();
+
+        float encoder_left = cached_encoders.first * 1.0;
+        float encoder_right = cached_encoders.second * 1.0;
         double radians_left =
           ((encoder_left * 1.0) / g_singleton->quad_pulses_per_revolution_) *
           2.0 * M_PI;
@@ -263,10 +276,12 @@ void MotorDriver::publisherThread() {
         double dt = (now - last_time).seconds();
         last_time = now;
 
-        float linear_velocity_x =
-          RoboClaw::singleton()->getVelocity(RoboClaw::kM1);
-        float linear_velocity_y =
-          RoboClaw::singleton()->getVelocity(RoboClaw::kM2);
+        // Use cached velocity data instead of direct access
+        auto& cache = IoExecutor::instance().getDeviceCache();
+        auto cached_velocities = cache.getVelocities();
+
+        float linear_velocity_x = cached_velocities.first;
+        float linear_velocity_y = cached_velocities.second;
         float angular_velocity_z = (linear_velocity_x - linear_velocity_y) /
           g_singleton->wheel_separation_;
 
@@ -325,10 +340,12 @@ void MotorDriver::publisherThread() {
 void MotorDriver::setupStatsTimer() {
   stats_timer_ = this->create_wall_timer(std::chrono::seconds(5), [this]() {
     auto stats = IoExecutor::instance().getStats();
-    RCUTILS_LOG_INFO("[IoExecutor] q_high=%zu q_norm=%zu executed=%llu last_latency_ms=%.3f",
-      stats.queued_high, stats.queued_normal,
-      static_cast<unsigned long long>(stats.executed),
-      stats.last_latency_ms);
+    RCUTILS_LOG_INFO("[IoExecutor] completed=%llu failed=%llu retries=%llu avg_latency=%.3f max_latency=%.3f",
+      static_cast<unsigned long long>(stats.operations_completed),
+      static_cast<unsigned long long>(stats.operations_failed),
+      static_cast<unsigned long long>(stats.total_retries),
+      stats.avg_latency_ms,
+      stats.max_latency_ms);
     });
 }
 

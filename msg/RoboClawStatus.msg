@@ -31,4 +31,5 @@ uint8  m2_encoder_status
 float32  main_battery_voltage
 float32  logic_battery_voltage
 float32  temperature
+uint32  error_status
 string  error_string
