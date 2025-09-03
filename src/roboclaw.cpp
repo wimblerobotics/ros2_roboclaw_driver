@@ -180,6 +180,98 @@ std::string RoboClaw::getErrorString(uint32_t status) {
   return ss.str();
 }
 
+void RoboClaw::decodeErrorStatus(uint32_t error_status, char* buffer, size_t size) const {
+  if (error_status == 0) {
+    strncpy(buffer, "No errors", size);
+    buffer[size - 1] = '\0';
+    return;
+  }
+
+  buffer[0] = '\0';
+  size_t current_len = 0;
+  bool first = true;
+
+  auto append_error = [&](const char* error_str) {
+    if (current_len >= size - 1)
+      return;
+    size_t needed = strlen(error_str) + (first ? 0 : 2);
+    if (current_len + needed < size) {
+      if (!first) {
+        strcat(buffer, ", ");
+        current_len += 2;
+      }
+      strcat(buffer, error_str);
+      current_len += strlen(error_str);
+      first = false;
+    }
+  };
+
+  // Check error flags (bits 0-15)
+  if (error_status & static_cast<uint32_t>(RoboClawError::ERROR_ESTOP))
+    append_error("ERROR_ESTOP");
+  if (error_status & static_cast<uint32_t>(RoboClawError::ERROR_TEMP))
+    append_error("ERROR_TEMP");
+  if (error_status & static_cast<uint32_t>(RoboClawError::ERROR_TEMP2))
+    append_error("ERROR_TEMP2");
+  if (error_status & static_cast<uint32_t>(RoboClawError::ERROR_LBATHIGH))
+    append_error("ERROR_LBATHIGH");
+  if (error_status & static_cast<uint32_t>(RoboClawError::ERROR_LBATLOW))
+    append_error("ERROR_LBATLOW");
+  if (error_status & static_cast<uint32_t>(RoboClawError::ERROR_FAULTM1))
+    append_error("ERROR_FAULTM1");
+  if (error_status & static_cast<uint32_t>(RoboClawError::ERROR_FAULTM2))
+    append_error("ERROR_FAULTM2");
+  if (error_status & static_cast<uint32_t>(RoboClawError::ERROR_SPEED1))
+    append_error("ERROR_SPEED1");
+  if (error_status & static_cast<uint32_t>(RoboClawError::ERROR_SPEED2))
+    append_error("ERROR_SPEED2");
+  if (error_status & static_cast<uint32_t>(RoboClawError::ERROR_POS1))
+    append_error("ERROR_POS1");
+  if (error_status & static_cast<uint32_t>(RoboClawError::ERROR_POS2))
+    append_error("ERROR_POS2");
+  if (error_status & static_cast<uint32_t>(RoboClawError::ERROR_CURRENTM1))
+    append_error("ERROR_CURRENTM1");
+  if (error_status & static_cast<uint32_t>(RoboClawError::ERROR_CURRENTM2))
+    append_error("ERROR_CURRENTM2");
+
+  // Check warning flags (bits 16-31)
+  if (error_status & static_cast<uint32_t>(RoboClawError::WARN_OVERCURRENTM1))
+    append_error("WARN_OVERCURRENTM1");
+  if (error_status & static_cast<uint32_t>(RoboClawError::WARN_OVERCURRENTM2))
+    append_error("WARN_OVERCURRENTM2");
+  if (error_status & static_cast<uint32_t>(RoboClawError::WARN_MBATHIGH))
+    append_error("WARN_MBATHIGH");
+  if (error_status & static_cast<uint32_t>(RoboClawError::WARN_MBATLOW))
+    append_error("WARN_MBATLOW");
+  if (error_status & static_cast<uint32_t>(RoboClawError::WARN_TEMP))
+    append_error("WARN_TEMP");
+  if (error_status & static_cast<uint32_t>(RoboClawError::WARN_TEMP2))
+    append_error("WARN_TEMP2");
+  if (error_status & static_cast<uint32_t>(RoboClawError::WARN_S4))
+    append_error("WARN_S4");
+  if (error_status & static_cast<uint32_t>(RoboClawError::WARN_S5))
+    append_error("WARN_S5");
+  if (error_status & static_cast<uint32_t>(RoboClawError::WARN_CAN))
+    append_error("WARN_CAN");
+  if (error_status & static_cast<uint32_t>(RoboClawError::WARN_BOOT))
+    append_error("WARN_BOOT");
+  if (error_status & static_cast<uint32_t>(RoboClawError::WARN_OVERREGENM1))
+    append_error("WARN_OVERREGENM1");
+  if (error_status & static_cast<uint32_t>(RoboClawError::WARN_OVERREGENM2))
+    append_error("WARN_OVERREGENM2");
+
+  // Report any unknown bits
+  uint32_t known_errors = 0xF000EFFF;  // All defined error and warning bits
+  uint32_t unknown_errors = error_status & ~known_errors;
+  if (unknown_errors != 0) {
+    if (current_len < size - 1 && !first) {
+      strcat(buffer, ", ");
+      current_len += 2;
+    }
+    snprintf(buffer + current_len, size - current_len, "UNKNOWN:0x%X",
+             (unsigned int)unknown_errors);
+  }
+}
 float RoboClaw::getLogicBatteryLevel() {
   float v = 0.0f;
   try {

@@ -19,6 +19,14 @@
 
 #include "roboclaw.h"
 #include "roboclaw_cmd_do_buffered_m1m2_drive_speed_accel_distance.h"
+#include "roboclaw_cmd_read_encoder.h"
+#include "roboclaw_cmd_read_encoder_speed.h"
+#include "roboclaw_cmd_read_logic_battery_voltage.h"
+#include "roboclaw_cmd_read_main_battery_voltage.h"
+#include "roboclaw_cmd_read_motor_currents.h"
+#include "roboclaw_cmd_read_motor_velocity_pidq.h"
+#include "roboclaw_cmd_read_status.h"
+#include "roboclaw_cmd_read_temperature.h"
 
 MotorDriver::MotorDriver()
     : Node("motor_driver_node"),
@@ -153,43 +161,85 @@ void MotorDriver::logParameters() const {
 }
 
 void MotorDriver::cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
-  static std::chrono::steady_clock::time_point last_cb_time;
-  static uint64_t cb_count = 0;
-  static double cb_interval_ema_ms = 0.0;
-  static double cb_interval_max_ms = 0.0;
-  static std::chrono::steady_clock::time_point last_metrics_log;
+  cached_cmd_vel_.mutex.lock();
+  cached_cmd_vel_.twist = *msg;
+  cached_cmd_vel_.stamp = std::chrono::steady_clock::now();
+  cached_cmd_vel_.seq++;
+  cached_cmd_vel_.mutex.unlock();
+}
 
-  if (!last_metrics_log.time_since_epoch().count())
-    last_metrics_log = std::chrono::steady_clock::now();
-
-  if (RoboClaw::singleton() != nullptr) {
-    auto now = std::chrono::steady_clock::now();
-    if (cb_count > 0) {
-      double dt_ms = std::chrono::duration<double, std::milli>(now - last_cb_time).count();
-      if (cb_interval_ema_ms == 0.0)
-        cb_interval_ema_ms = dt_ms;
-      else
-        cb_interval_ema_ms = 0.9 * cb_interval_ema_ms + 0.1 * dt_ms;
-      cb_interval_max_ms = std::max(cb_interval_max_ms, dt_ms);
+void MotorDriver::processCmdVel() {
+  // Process each new cmd_vel exactly once (always send command, even tiny velocities)
+  if (cached_cmd_vel_.seq != last_processed_seq_) {
+    if (cached_cmd_vel_.seq > last_processed_seq_ + 1) {
+      cmd_missed_count_ += (cached_cmd_vel_.seq - (last_processed_seq_ + 1));
     }
-    last_cb_time = now;
-    cb_count++;
-
-    // Cache latest cmd_vel for high-rate control loop
-    auto cached = std::make_shared<CachedCmdVel>();
-    cached->twist = *msg;
-    cached->stamp = now;
-    cached->seq = next_cmd_vel_seq_++;
-    latest_cmd_vel_ = cached;  // simple store
-
-    // Periodic metrics log (every ~1s)
-    if (std::chrono::duration<double>(now - last_metrics_log).count() >= 1.0) {
-      double avg_hz = cb_interval_ema_ms > 0 ? 1000.0 / cb_interval_ema_ms : 0.0;
+    last_processed_seq_ = cached_cmd_vel_.seq;
+    cmd_processed_count_++;
+    double latency_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                                  cached_cmd_vel_.stamp)
+                            .count();
+    if (cmd_latency_ema_ms_ == 0.0)
+      cmd_latency_ema_ms_ = latency_ms;
+    else
+      cmd_latency_ema_ms_ = 0.9 * cmd_latency_ema_ms_ + 0.1 * latency_ms;
+    cmd_latency_max_ms_ = std::max(cmd_latency_max_ms_, latency_ms);
+    const double x_velocity =
+        std::clamp((double)cached_cmd_vel_.twist.linear.x, -(double)max_linear_velocity_,
+                   (double)max_linear_velocity_);
+    const double yaw_velocity =
+        std::clamp((double)cached_cmd_vel_.twist.angular.z, -(double)max_angular_velocity_,
+                   (double)max_angular_velocity_);
+    const double m1_desired_velocity =
+        x_velocity - (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
+    const double m2_desired_velocity =
+        x_velocity + (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
+    const int32_t m1_qpps = (int32_t)(m1_desired_velocity * quad_pulses_per_meter_);
+    const int32_t m2_qpps = (int32_t)(m2_desired_velocity * quad_pulses_per_meter_);
+    const int32_t m1_max_distance = (int32_t)fabs(m1_qpps * max_seconds_uncommanded_travel_);
+    const int32_t m2_max_distance = (int32_t)fabs(m2_qpps * max_seconds_uncommanded_travel_);
+    try {
+      CmdDoBufferedM1M2DriveSpeedAccelDistance cmd = CmdDoBufferedM1M2DriveSpeedAccelDistance(
+          *RoboClaw::singleton(), accel_quad_pulses_per_second_, m1_qpps, m1_max_distance, m2_qpps,
+          m2_max_distance);
+      cmd.send();
+      {
+        CmdReadEncoderSpeed cmd =
+            CmdReadEncoderSpeed(*RoboClaw::singleton(), RoboClaw::kM1, velocity_left_);
+        cmd.send();
+        RCUTILS_LOG_INFO("Left wheel velocity (Qpps): %d", velocity_left_);
+      }
+      last_motor_command_send_time_ = std::chrono::steady_clock::now();
+      last_sent_x_ = x_velocity;
+      last_sent_yaw_ = yaw_velocity;
+      if (log_each_cmd_vel_) {
+        double inter_arrival_ms = 0.0;
+        if (prev_processed_seq_time_.time_since_epoch().count()) {
+          inter_arrival_ms = std::chrono::duration<double, std::milli>(last_processed_seq_time_ -
+                                                                       prev_processed_seq_time_)
+                                 .count();
+        }
+        RCUTILS_LOG_INFO(
+            "[cmd_vel handle] seq=%llu latency=%.2fms ia=%.2fms x=%.4f yaw=%.4f m1_qpps=%d "
+            "m2_qpps=%d dist=(%d,%d)",
+            (unsigned long long)last_processed_seq_, latency_ms, inter_arrival_ms, x_velocity,
+            yaw_velocity, m1_qpps, m2_qpps, m1_max_distance, m2_max_distance);
+      }
+    } catch (...) {
+    }
+    auto now_metrics = std::chrono::steady_clock::now();
+    if (!last_cmd_metrics_log_.time_since_epoch().count())
+      last_cmd_metrics_log_ = now_metrics;
+    if (std::chrono::duration<double>(now_metrics - last_cmd_metrics_log_).count() >= 1.0) {
+      double processed_rate = cmd_latency_ema_ms_ > 0 ? 1000.0 / cmd_latency_ema_ms_ : 0.0;
       RCUTILS_LOG_INFO(
-          "[cmd_vel stats] count=%lu ema_dt=%.2f ms max_dt=%.2f ms approx_rate=%.1f Hz",
-          (unsigned long)cb_count, cb_interval_ema_ms, cb_interval_max_ms, avg_hz);
-      cb_interval_max_ms = 0.0;  // reset max each interval window
-      last_metrics_log = now;
+          "[cmd_vel proc] last_seq=%llu processed=%llu missed=%llu lat_ema=%.2fms "
+          "lat_max=%.2fms est_rate=%.1fHz",
+          (unsigned long long)last_processed_seq_, (unsigned long long)cmd_processed_count_,
+          (unsigned long long)cmd_missed_count_, cmd_latency_ema_ms_, cmd_latency_max_ms_,
+          processed_rate);
+      cmd_latency_max_ms_ = 0.0;
+      last_cmd_metrics_log_ = now_metrics;
     }
   }
 }
@@ -282,115 +332,51 @@ void MotorDriver::controlLoop() {
       // Incremental sensor polling (one piece per loop)
       try {
         switch (incremental_sensor_index_) {
-          case 0:
-            encoder_left_ = rc->getM1Encoder();
+          case 0: {
+            RoboClaw::EncodeResult encoder_result;
+            CmdReadEncoder cmd1 = CmdReadEncoder(*rc, RoboClaw::kM1, encoder_result);
+            cmd1.send();
+            encoder_left_ = encoder_result.value;
+            encoder_left_status_ = encoder_result.status;
+            CmdReadEncoder cmd2 = CmdReadEncoder(*rc, RoboClaw::kM2, encoder_result);
+            cmd2.send();
+            encoder_right_ = encoder_result.value;
+            encoder_right_status_ = encoder_result.status;
+          } break;
+
+          case 1: {
+            CmdReadEncoderSpeed cmd1 = CmdReadEncoderSpeed(*rc, RoboClaw::kM1, velocity_left_);
+            cmd1.send();
+            CmdReadEncoderSpeed cmd2 = CmdReadEncoderSpeed(*rc, RoboClaw::kM2, velocity_right_);
+            cmd2.send();
+          } break;
+          case 2: {
+            RoboClaw::TMotorCurrents motor_currents;
+            CmdReadMotorCurrents cmd = CmdReadMotorCurrents(*rc, motor_currents);
+            cmd.send();
+            motor_currents_.m1Current = motor_currents.m1Current;
+            motor_currents_.m2Current = motor_currents.m2Current;
+          } break;
+          case 3: {
+            CmdReadLogicBatteryVoltage cmd1 = CmdReadLogicBatteryVoltage(*rc, logic_voltage_);
+            cmd1.send();
+            CmdReadMainBatteryVoltage cmd2 = CmdReadMainBatteryVoltage(*rc, main_voltage_);
+            cmd2.send();
+          } break;
+          case 4: {
+            CmdReadTemperature cmd1 = CmdReadTemperature(*rc, temperature_);
+            cmd1.send();
+            CmdReadStatus cmd2 = CmdReadStatus(*rc, status_bits_);
+            cmd2.send();
+          } break;
+          default:
             break;
-          case 1:
-            encoder_right_ = rc->getM2Encoder();
-            break;
-            // case 2:
-            //   velocity_left_ = rc->getVelocity(RoboClaw::kM1);
-            //   break;
-            // case 3:
-            //   velocity_right_ = rc->getVelocity(RoboClaw::kM2);
-            //   break;
-            // case 4: {
-            //   auto c = rc->getMotorCurrents();
-            //   motor_currents_.m1Current = c.m1Current;
-            //   motor_currents_.m2Current = c.m2Current;
-            // } break;
-            // case 5:
-            //   logic_voltage_ = rc->getLogicBatteryLevel();
-            //   break;
-            // case 6:
-            //   main_voltage_ = rc->getMainBatteryLevel();
-            //   break;
-            // case 7:
-            //   temperature_ = rc->getTemperature();
-            //   break;
-            // case 8:
-            //   status_bits_ = rc->getErrorStatus();
-            //   break;
-            // default:
-            //   break;
         }
-        incremental_sensor_index_ = (incremental_sensor_index_ + 1) % 9;
+        incremental_sensor_index_ = (incremental_sensor_index_ + 1) % 5;
       } catch (...) {
       }
 
-      // Process each new cmd_vel exactly once (always send command, even tiny velocities)
-      auto cached = latest_cmd_vel_;
-      if (cached && cached->seq != last_processed_seq_) {
-        prev_processed_seq_time_ = last_processed_seq_time_;
-        last_processed_seq_time_ = std::chrono::steady_clock::now();
-        if (cached->seq > last_processed_seq_ + 1) {
-          cmd_missed_count_ += (cached->seq - (last_processed_seq_ + 1));
-        }
-        last_processed_seq_ = cached->seq;
-        cmd_processed_count_++;
-        double latency_ms = std::chrono::duration<double, std::milli>(
-                                std::chrono::steady_clock::now() - cached->stamp)
-                                .count();
-        if (cmd_latency_ema_ms_ == 0.0)
-          cmd_latency_ema_ms_ = latency_ms;
-        else
-          cmd_latency_ema_ms_ = 0.9 * cmd_latency_ema_ms_ + 0.1 * latency_ms;
-        cmd_latency_max_ms_ = std::max(cmd_latency_max_ms_, latency_ms);
-        const double x_velocity =
-            std::clamp((double)cached->twist.linear.x, -(double)max_linear_velocity_,
-                       (double)max_linear_velocity_);
-        const double yaw_velocity =
-            std::clamp((double)cached->twist.angular.z, -(double)max_angular_velocity_,
-                       (double)max_angular_velocity_);
-        const double m1_desired_velocity =
-            x_velocity - (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
-        const double m2_desired_velocity =
-            x_velocity + (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
-        const int32_t m1_qpps = (int32_t)(m1_desired_velocity * quad_pulses_per_meter_);
-        const int32_t m2_qpps = (int32_t)(m2_desired_velocity * quad_pulses_per_meter_);
-        const int32_t m1_max_distance = (int32_t)fabs(m1_qpps * max_seconds_uncommanded_travel_);
-        const int32_t m2_max_distance = (int32_t)fabs(m2_qpps * max_seconds_uncommanded_travel_);
-        try {
-          CmdDoBufferedM1M2DriveSpeedAccelDistance c(*rc, accel_quad_pulses_per_second_, m1_qpps,
-                                                     m1_max_distance, m2_qpps, m2_max_distance);
-          c.execute();
-
-          // rc->doMixedSpeedAccelDist(accel_quad_pulses_per_second_, m1_qpps, m1_max_distance,
-          //                           m2_qpps, m2_max_distance);
-          last_motor_command_send_time_ = std::chrono::steady_clock::now();
-          last_sent_x_ = x_velocity;
-          last_sent_yaw_ = yaw_velocity;
-          if (log_each_cmd_vel_) {
-            double inter_arrival_ms = 0.0;
-            if (prev_processed_seq_time_.time_since_epoch().count()) {
-              inter_arrival_ms = std::chrono::duration<double, std::milli>(
-                                     last_processed_seq_time_ - prev_processed_seq_time_)
-                                     .count();
-            }
-            RCUTILS_LOG_INFO(
-                "[cmd_vel handle] seq=%llu latency=%.2fms ia=%.2fms x=%.4f yaw=%.4f m1_qpps=%d "
-                "m2_qpps=%d dist=(%d,%d)",
-                (unsigned long long)last_processed_seq_, latency_ms, inter_arrival_ms, x_velocity,
-                yaw_velocity, m1_qpps, m2_qpps, m1_max_distance, m2_max_distance);
-          }
-        } catch (...) {
-        }
-        auto now_metrics = std::chrono::steady_clock::now();
-        if (!last_cmd_metrics_log_.time_since_epoch().count())
-          last_cmd_metrics_log_ = now_metrics;
-        if (std::chrono::duration<double>(now_metrics - last_cmd_metrics_log_).count() >= 1.0) {
-          double processed_rate = cmd_latency_ema_ms_ > 0 ? 1000.0 / cmd_latency_ema_ms_ : 0.0;
-          RCUTILS_LOG_INFO(
-              "[cmd_vel proc] last_seq=%llu processed=%llu missed=%llu lat_ema=%.2fms "
-              "lat_max=%.2fms est_rate=%.1fHz",
-              (unsigned long long)last_processed_seq_, (unsigned long long)cmd_processed_count_,
-              (unsigned long long)cmd_missed_count_, cmd_latency_ema_ms_, cmd_latency_max_ms_,
-              processed_rate);
-          cmd_latency_max_ms_ = 0.0;
-          last_cmd_metrics_log_ = now_metrics;
-        }
-      }
-
+      processCmdVel();
       auto now_tp = std::chrono::steady_clock::now();
       // Joint states publish
       if (publish_joint_states_ && joint_state_publisher_ &&
@@ -477,20 +463,21 @@ void MotorDriver::controlLoop() {
         msg.m2_d = m2.d;
         msg.m2_qpps = m2.qpps;
         try {
-          msg.m1_current_speed = rc->getVelocity(RoboClaw::kM1);
-          msg.m2_current_speed = rc->getVelocity(RoboClaw::kM2);
-          auto c = rc->getMotorCurrents();
-          msg.m1_motor_current = c.m1Current;
-          msg.m2_motor_current = c.m2Current;
-          msg.m1_encoder_value = rc->getM1Encoder();
-          msg.m1_encoder_status = rc->getM1EncoderStatus();
-          msg.m2_encoder_value = rc->getM2Encoder();
-          msg.m2_encoder_status = rc->getM2EncoderStatus();
-          msg.main_battery_voltage = rc->getMainBatteryLevel();
-          msg.logic_battery_voltage = rc->getLogicBatteryLevel();
-          msg.temperature = rc->getTemperature();
-          msg.error_status = rc->getErrorStatus();
-          msg.error_string = rc->getErrorString();
+          msg.m1_current_speed = velocity_left_;
+          msg.m2_current_speed = velocity_right_;
+          msg.m1_motor_current = motor_currents_.m1Current;
+          msg.m2_motor_current = motor_currents_.m2Current;
+          msg.m1_encoder_value = encoder_left_;
+          msg.m1_encoder_status = encoder_left_status_;
+          msg.m2_encoder_value = encoder_right_;
+          msg.m2_encoder_status = encoder_right_status_;
+          msg.main_battery_voltage = main_voltage_;
+          msg.logic_battery_voltage = logic_voltage_;
+          msg.temperature = temperature_;
+          msg.error_status = status_bits_;
+          char error_buffer[256];
+          rc->decodeErrorStatus(status_bits_, error_buffer, sizeof(error_buffer));
+          msg.error_string = error_buffer;
           status_publisher_->publish(msg);
         } catch (...) {
         }
@@ -514,3 +501,5 @@ void MotorDriver::controlLoop() {
     std::this_thread::sleep_until(next_time);
   }
 }
+
+MotorDriver::CachedCmdVel MotorDriver::cached_cmd_vel_;

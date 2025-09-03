@@ -14,12 +14,6 @@
 #include "roboclaw.h"
 #include "ros2_roboclaw_driver/msg/robo_claw_status.hpp"
 
-struct CachedCmdVel {
-  geometry_msgs::msg::Twist twist;
-  std::chrono::steady_clock::time_point stamp;
-  uint64_t seq{0};
-};
-
 class MotorDriver : public rclcpp::Node {
  public:
   MotorDriver();
@@ -44,13 +38,12 @@ class MotorDriver : public rclcpp::Node {
     status_publisher_ = pub;
   }
 
-  void processCmdVel();
-
  private:
   void declareParameters();
   void initializeParameters();
   void logParameters() const;
   void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
+  void processCmdVel();
   void publisherThread();
   void setupStatsTimer();
   void controlLoop();  // New unified high-rate loop (replaces IoExecutor + publisherThread)
@@ -111,7 +104,6 @@ class MotorDriver : public rclcpp::Node {
   bool log_each_cmd_vel_{true};
 
   // Cached latest cmd_vel
-  std::shared_ptr<CachedCmdVel> latest_cmd_vel_;  // single writer (callback) + single reader (loop)
   uint64_t next_cmd_vel_seq_{1};
   uint64_t last_processed_seq_{0};
   // Metrics
@@ -139,7 +131,9 @@ class MotorDriver : public rclcpp::Node {
   // Incremental sensor polling state & cache
   int incremental_sensor_index_{0};
   uint32_t encoder_left_{0};
+  uint8_t encoder_left_status_{0};
   uint32_t encoder_right_{0};
+  uint8_t encoder_right_status_{0};
   int32_t velocity_left_{0};
   int32_t velocity_right_{0};
   struct MotorCurrentsCache {
@@ -150,6 +144,15 @@ class MotorDriver : public rclcpp::Node {
   float main_voltage_{0.0f};
   float temperature_{0.0f};
   uint32_t status_bits_{0};
+
+  typedef struct CachedCmdVel {
+    geometry_msgs::msg::Twist twist;
+    std::chrono::steady_clock::time_point stamp;
+    uint64_t seq{0};
+    mutable std::mutex mutex;  // Mutex for thread-safe access
+  } CachedCmdVel;
+
+  static CachedCmdVel cached_cmd_vel_;
 
   static MotorDriver* g_singleton;
 };

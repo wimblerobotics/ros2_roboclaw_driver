@@ -96,6 +96,8 @@ class RoboClaw {
     va_end(args);
   }
 
+  void decodeErrorStatus(uint32_t error_status, char* buffer, size_t size) const;
+
   void doMixedSpeedAccelDist(uint32_t accel_quad_pulses_per_second,
                              int32_t m1_quad_pulses_per_second, uint32_t m1_max_distance,
                              int32_t m2_quad_pulses_per_second, uint32_t m2_max_distance);
@@ -394,4 +396,36 @@ class RoboClaw {
 
   static const char* motorNames_[];
   static std::mutex buffered_command_mutex_;  // Global mutex for buffered commands
+
+  // RoboClaw error status bit definitions (complete specification)
+  enum class RoboClawError : uint32_t {
+    // Error flags (bits 0-15)
+    ERROR_ESTOP = 0x00000001,      ///< Emergency stop triggered
+    ERROR_TEMP = 0x00000002,       ///< Temperature fault
+    ERROR_TEMP2 = 0x00000004,      ///< Secondary temperature fault
+    ERROR_LBATHIGH = 0x00000010,   ///< Logic battery voltage too high
+    ERROR_LBATLOW = 0x00000020,    ///< Logic battery voltage too low
+    ERROR_FAULTM1 = 0x00000040,    ///< Motor 1 driver fault
+    ERROR_FAULTM2 = 0x00000080,    ///< Motor 2 driver fault
+    ERROR_SPEED1 = 0x00000100,     ///< Motor 1 speed error
+    ERROR_SPEED2 = 0x00000200,     ///< Motor 2 speed error
+    ERROR_POS1 = 0x00000400,       ///< Motor 1 position error
+    ERROR_POS2 = 0x00000800,       ///< Motor 2 position error
+    ERROR_CURRENTM1 = 0x00001000,  ///< Motor 1 current error
+    ERROR_CURRENTM2 = 0x00002000,  ///< Motor 2 current error
+
+    // Warning flags (bits 16-31)
+    WARN_OVERCURRENTM1 = 0x00010000,  ///< Motor 1 overcurrent warning
+    WARN_OVERCURRENTM2 = 0x00020000,  ///< Motor 2 overcurrent warning
+    WARN_MBATHIGH = 0x00040000,       ///< Main battery voltage too high warning
+    WARN_MBATLOW = 0x00080000,        ///< Main battery voltage too low warning
+    WARN_TEMP = 0x00100000,           ///< Temperature warning
+    WARN_TEMP2 = 0x00200000,          ///< Secondary temperature warning
+    WARN_S4 = 0x00400000,             ///< S4 signal warning
+    WARN_S5 = 0x00800000,             ///< S5 signal warning
+    WARN_CAN = 0x10000000,            ///< CAN communication warning (MCP models only)
+    WARN_BOOT = 0x20000000,           ///< Boot mode warning
+    WARN_OVERREGENM1 = 0x40000000,    ///< Motor 1 over-regeneration warning
+    WARN_OVERREGENM2 = 0x80000000     ///< Motor 2 over-regeneration warning
+  };
 };

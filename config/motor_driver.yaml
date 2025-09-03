@@ -41,8 +41,8 @@ motor_driver_node:
 
     # Rate limiting commands. The driver will clip any value
     # exceeding these limits.
-    max_angular_velocity: 1.0
-    max_linear_velocity: 1.0
+    max_angular_velocity: 0.07
+    max_linear_velocity: 0.447
 
     # If no new motor commands is received since the last motor
     # command in this number of seconds, stop the motors.
@@ -72,4 +72,4 @@ motor_driver_node:
 
     # Debugging control.
     do_debug: false # True => Log RoboClaw commands and responses.
-    do_low_level_debug: false   # True => Log low-level serial and RoboClaw data.
+    do_low_level_debug: false # True => Log low-level serial and RoboClaw data.
