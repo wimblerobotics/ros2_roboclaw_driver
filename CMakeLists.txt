@@ -47,7 +47,7 @@ rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME}
 
 add_executable(
   ros2_roboclaw_driver_node src/motor_driver_node.cpp src/motor_driver.cpp
-                            src/roboclaw.cpp src/io_executor.cpp)
+                            src/roboclaw.cpp)
 
 ament_target_dependencies(ros2_roboclaw_driver_node rclcpp geometry_msgs
                           nav_msgs sensor_msgs std_msgs)

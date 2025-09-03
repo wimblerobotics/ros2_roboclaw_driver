@@ -15,24 +15,24 @@
 
 #include "ros2_roboclaw_driver/srv/reset_encoders.hpp"
 
- /* The expected client is motor_driver.cpp
-  * The expected node is motor_driver_node.cpp
-  *
-  * This class provides a C++ interface to the RoboClaw motor controller.
-  * It handles communication with the device and provides methods for
-  * controlling the motors, reading encoder values, and getting status
-  * information.
-  *
-  * The RoboClaw motor controller is used in various robotics applications,
-  * and this class abstracts the low-level details of communication with the
-  * device.
-  */
+/* The expected client is motor_driver.cpp
+ * The expected node is motor_driver_node.cpp
+ *
+ * This class provides a C++ interface to the RoboClaw motor controller.
+ * It handles communication with the device and provides methods for
+ * controlling the motors, reading encoder values, and getting status
+ * information.
+ *
+ * The RoboClaw motor controller is used in various robotics applications,
+ * and this class abstracts the low-level details of communication with the
+ * device.
+ */
 
 #define SetDWORDval(arg) \
   (uint8_t)(arg >> 24), (uint8_t)(arg >> 16), (uint8_t)(arg >> 8), (uint8_t)arg
 
 class RoboClaw {
-public:
+ public:
   enum kMotor { kM1 = 0, kM2 = 1, kNone = 2 };
 
   // Bit positions used to build alarms.
@@ -64,7 +64,9 @@ public:
       s = std::string(buffer);
     }
     ~TRoboClawException() throw() {}
-    const char* what() const throw() { return s.c_str(); }
+    const char* what() const throw() {
+      return s.c_str();
+    }
   };
 
   // Holds RoboClaw encoder result.
@@ -74,10 +76,9 @@ public:
   } EncodeResult;
 
   // Constructor.
-  RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent,
-    float m2MaxCurrent, std::string device_name, uint8_t device_port,
-    uint32_t baud_rate, bool do_debug = false,
-    bool do_low_level_debug = false);
+  RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent, float m2MaxCurrent,
+           std::string device_name, uint8_t device_port, uint32_t baud_rate, bool do_debug = false,
+           bool do_low_level_debug = false);
 
   ~RoboClaw();
 
@@ -96,10 +97,8 @@ public:
   }
 
   void doMixedSpeedAccelDist(uint32_t accel_quad_pulses_per_second,
-    int32_t m1_quad_pulses_per_second,
-    uint32_t m1_max_distance,
-    int32_t m2_quad_pulses_per_second,
-    uint32_t m2_max_distance);
+                             int32_t m1_quad_pulses_per_second, uint32_t m1_max_distance,
+                             int32_t m2_quad_pulses_per_second, uint32_t m2_max_distance);
 
   // Get RoboClaw error status bits.
   uint32_t getErrorStatus();
@@ -136,7 +135,9 @@ public:
   } TMotorCurrents;
 
   // Make sure you call getMotorCurrents before getMotorAlarms.
-  int getMotorAlarms() { return motorAlarms_; }
+  int getMotorAlarms() {
+    return motorAlarms_;
+  }
 
   // Get the value of currents flowig  into each motors.
   TMotorCurrents getMotorCurrents();
@@ -159,6 +160,18 @@ public:
   // Get RoboClaw software version.
   std::string getVersion();
 
+  // Retry parameter accessors (populated by MotorDriver after construction)
+  int getRetryCount() const {
+    return retry_count_param_;
+  }
+  int getRetryQuietMs() const {
+    return retry_quiet_ms_param_;
+  }
+  void setRetryParams(int count, int quiet_ms) {
+    retry_count_param_ = count;
+    retry_quiet_ms_param_ = quiet_ms;
+  }
+
   // Stop motion.
   void stop();
 
@@ -168,11 +181,11 @@ public:
   // Read a group of sensors from the RoboClaw.
   void readSensorGroup();
 
-protected:
+ protected:
   // Write a stream of bytes to the device.
   void writeN2(bool sendCRC, uint8_t cnt, ...);
 
-private:
+ private:
   // True => print debug messages.
   bool do_debug_;
 
@@ -191,7 +204,7 @@ private:
   // method and can be accessed by clients using the g_sensor_value_group_
   // structure.
   typedef struct {
-    uint32_t error_status; // now 32-bit per updated RoboClaw manual
+    uint32_t error_status;  // now 32-bit per updated RoboClaw manual
     std::string error_string;
     float logic_battery_level;
     EncodeResult m1_encoder_command_result;
@@ -267,15 +280,17 @@ private:
     GETM1MAXCURRENT = 135
   } ROBOCLAW_COMMAND;
 
-  int baud_rate_;            // Baud rate for RoboClaw connection.
-  int device_port_;          // Unix file descriptor for RoboClaw connection.
-  int maxCommandRetries_;    // Maximum number of times to retry a RoboClaw
+  int baud_rate_;          // Baud rate for RoboClaw connection.
+  int device_port_;        // Unix file descriptor for RoboClaw connection.
+  int maxCommandRetries_;  // Maximum number of times to retry a RoboClaw
   // command.
   float maxM1Current_;       // Maximum allowed M1 current.
   float maxM2Current_;       // Maximum allowed M2 current.
   int motorAlarms_;          // Motors alarms. Bit-wise OR of contributors.
   std::string device_name_;  // Device name of RoboClaw device.
   int portAddress_;          // Port number of RoboClaw device under control
+  int retry_count_param_{3};
+  int retry_quiet_ms_param_{0};
 
   // Get velocity (speed) result from the RoboClaw controller.
   int32_t getVelocityResult(uint8_t command);
@@ -296,9 +311,8 @@ private:
   void restartPort();
 
   // Reset the encoders.
-  bool resetEncoders(
-    ros2_roboclaw_driver::srv::ResetEncoders::Request& request,
-    ros2_roboclaw_driver::srv::ResetEncoders::Response& response);
+  bool resetEncoders(ros2_roboclaw_driver::srv::ResetEncoders::Request& request,
+                     ros2_roboclaw_driver::srv::ResetEncoders::Response& response);
 
   // Set the PID for motor M1.
   void setM1PID(float p, float i, float d, uint32_t qpps);
@@ -315,19 +329,15 @@ private:
   static RoboClaw* g_singleton;
 
   class DebugLog {
-  public:
+   public:
     DebugLog(RoboClaw* roboclaw)
-      : roboclaw_(roboclaw),
-      next_read_log_index_(0),
-      next_write_log_index_(0) {
-    }
+        : roboclaw_(roboclaw), next_read_log_index_(0), next_write_log_index_(0) {}
     ~DebugLog() {}
 
     void appendToReadLog(const char* format, va_list args) {
       if (roboclaw_->do_debug_) {
-        int written =
-          vsnprintf(&read_log_[next_read_log_index_],
-            sizeof(read_log_) - next_read_log_index_, format, args);
+        int written = vsnprintf(&read_log_[next_read_log_index_],
+                                sizeof(read_log_) - next_read_log_index_, format, args);
         if (written > 0) {
           next_read_log_index_ += written;
         }
@@ -336,9 +346,8 @@ private:
 
     void appendToWriteLog(const char* format, va_list args) {
       if (roboclaw_->do_debug_) {
-        int written =
-          vsnprintf(&write_log_[next_write_log_index_],
-            sizeof(write_log_) - next_write_log_index_, format, args);
+        int written = vsnprintf(&write_log_[next_write_log_index_],
+                                sizeof(write_log_) - next_write_log_index_, format, args);
         if (written > 0) {
           next_write_log_index_ += written;
         }
@@ -350,8 +359,7 @@ private:
 
     void showLog() {
       if (roboclaw_->do_debug_) {
-        RCUTILS_LOG_INFO("[RoboClaw::DebugLog] %s, READ: %s", write_log_,
-          read_log_);
+        RCUTILS_LOG_INFO("[RoboClaw::DebugLog] %s, READ: %s", write_log_, read_log_);
         read_log_[0] = '\0';
         next_read_log_index_ = 0;
         write_log_[0] = '\0';
@@ -381,10 +389,9 @@ private:
   friend class CmdSetEncoderValue;
   friend class CmdSetPid;
 
-protected:
+ protected:
   DebugLog debug_log_;
 
   static const char* motorNames_[];
-  static std::mutex
-    buffered_command_mutex_;  // Global mutex for buffered commands
+  static std::mutex buffered_command_mutex_;  // Global mutex for buffered commands
 };
