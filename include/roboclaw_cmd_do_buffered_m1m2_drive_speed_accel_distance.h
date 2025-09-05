@@ -18,6 +18,8 @@ class CmdDoBufferedM1M2DriveSpeedAccelDistance : public Cmd {
         m1_max_distance_quad_pulses_(m1_max_distance_quad_pulses),
         m2_speed_quad_pulses_per_second_(m2_speed_quad_pulses_per_second),
         m2_max_distance_quad_pulses_(m2_max_distance_quad_pulses) {}
+
+ private:
   void send() override {
     try {
       auto send_start = std::chrono::steady_clock::now();
@@ -63,7 +65,6 @@ class CmdDoBufferedM1M2DriveSpeedAccelDistance : public Cmd {
     }
   }
 
- private:
   uint32_t accel_quad_pulses_per_second_;
   int32_t m1_speed_quad_pulses_per_second_;
   uint32_t m1_max_distance_quad_pulses_;

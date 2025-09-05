@@ -6,6 +6,8 @@ class CmdReadStatus : public Cmd {
  public:
   CmdReadStatus(RoboClaw& roboclaw, uint32_t& status)
       : Cmd(roboclaw, "ReadStatus", RoboClaw::kNone), status_(status) {}
+
+ private:
   void send() override {
     try {
       uint16_t crc = 0;
@@ -33,6 +35,5 @@ class CmdReadStatus : public Cmd {
     }
   };
 
- private:
   uint32_t& status_;
 };

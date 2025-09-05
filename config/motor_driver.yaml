@@ -8,7 +8,7 @@
 # See the README.md file for more information on how to set up
 # the RoboClaw and the Raspberry PI and how to set values in this file.
 
-motor_driver_node:
+ros2_roboclaw_driver_node:  # Must match the node name in motor_driver_node.cpp. Changing this will break parameter loading.
   ros__parameters:
     # Incremental acceleration to use in quadrature pulses per second.
     accel_quad_pulses_per_second: 3000
@@ -16,7 +16,7 @@ motor_driver_node:
     # The device name to be opened. Change this to your actual device you are using.
     # Both USB and UART devices are supported. The device name is the
     # name of the device as it appears in the /dev directory.
-    device_name: "/dev/roboclaw"
+    device_name: "/dev/roboclaw"  # REQUIRED. Driver will FATAL if not provided.
     baud_rate: 38400 # This does not apply when using USB.
 
     # The assigned port for the device (as configured on the RoboClaw).
@@ -54,13 +54,13 @@ motor_driver_node:
     # Based upon your particular motor gearing and encoders.
     # These values are used to scale cmd_vel commands
     # and encoder values to motor commands and odometry, respectfully.
-    quad_pulses_per_meter: 3114
+    quad_pulses_per_meter: 3114  # REQUIRED > 0
     quad_pulses_per_revolution: 1000.0
 
     # Based upon y our particular robot model.
     # The wheel separation and radius, in meters.
-    wheel_radius: 0.051112072
-    wheel_separation: 0.3906
+    wheel_radius: 0.051112072    # REQUIRED > 0
+    wheel_separation: 0.3906      # REQUIRED > 0
 
     # Topic name to be used to publish the RoboClaw status messages.
     roboclaw_status_topic: "roboclaw_status"
@@ -71,5 +71,5 @@ motor_driver_node:
     sensor_rate_hz: 20.0
 
     # Debugging control.
-    do_debug: false # True => Log RoboClaw commands and responses.
+    do_debug: true # True => Log RoboClaw commands and responses.
     do_low_level_debug: false # True => Log low-level serial and RoboClaw data.

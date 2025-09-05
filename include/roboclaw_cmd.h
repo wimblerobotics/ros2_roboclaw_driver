@@ -7,10 +7,9 @@ class Cmd {
   void execute() {
     int max_attempts = 3;
     int quiet_ms = 0;
-    if (RoboClaw::singleton()) {
-      max_attempts = RoboClaw::singleton()->getRetryCount();
-      quiet_ms = RoboClaw::singleton()->getRetryQuietMs();
-    }
+    max_attempts = roboclaw_.getRetryCount();
+    quiet_ms = roboclaw_.getRetryQuietMs();
+
     for (int attempt = 0; attempt < max_attempts; ++attempt) {
       try {
         std::lock_guard<std::mutex> lock(RoboClaw::buffered_command_mutex_);
@@ -35,8 +34,6 @@ class Cmd {
     }
   }
 
-  virtual void send() = 0;  // Declare send as a pure virtual function
-
  protected:
   Cmd(RoboClaw& roboclaw, const char* name, const RoboClaw::kMotor motor)
       : motor_(motor), roboclaw_(roboclaw) {
@@ -49,5 +46,7 @@ class Cmd {
   char name_[32];
 
  private:
+  virtual void send() = 0;
+
   Cmd() = delete;  // Disallow default constructor
 };

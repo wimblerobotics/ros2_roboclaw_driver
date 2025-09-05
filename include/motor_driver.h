@@ -14,7 +14,7 @@
 #include "roboclaw.h"
 #include "ros2_roboclaw_driver/msg/robo_claw_status.hpp"
 
-class MotorDriver : public rclcpp::Node {
+class MotorDriver {
  public:
   MotorDriver();
   static MotorDriver& singleton();
@@ -39,14 +39,18 @@ class MotorDriver : public rclcpp::Node {
   }
 
  private:
-  void declareParameters();
-  void initializeParameters();
+  RoboClaw* roboclaw_;
+  void declareParameters(rclcpp::Node& node);
+  void initializeParameters(rclcpp::Node& node);
+  void validateRequiredParametersOrDie();
   void logParameters() const;
   void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
   void processCmdVel();
   void publisherThread();
   void setupStatsTimer();
-  void controlLoop();  // New unified high-rate loop (replaces IoExecutor + publisherThread)
+  void controlLoopCallback();  // Timer callback for unified high-rate loop
+  void getFreshEncoders(uint32_t& encoder_left_, uint32_t& encoder_right_,
+                        uint8_t& encoder_left_status_, uint8_t& encoder_right_status_);
 
   // Odometry methods
   void integrateOdometry();
@@ -58,7 +62,7 @@ class MotorDriver : public rclcpp::Node {
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_publisher_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_publisher_;
   rclcpp::Publisher<ros2_roboclaw_driver::msg::RoboClawStatus>::SharedPtr status_publisher_;
-  // publisher_thread_ removed; functionality moved to controlLoop
+  rclcpp::TimerBase::SharedPtr control_timer_;  // Timer for control loop
 
   int accel_quad_pulses_per_second_;
   int baud_rate_;
@@ -88,13 +92,12 @@ class MotorDriver : public rclcpp::Node {
   float wheel_separation_;
 
   // High-rate loop config
-  int loop_sleep_ms_{1};
+  int loop_sleep_ms_{20};  // 50Hz control rate
   int odom_rate_hz_{50};
   int joint_state_rate_hz_{50};
-  int status_rate_hz_{1};
+  int status_rate_hz_{20};
   int retry_count_{3};
   int retry_quiet_ms_{10};
-  int command_resend_period_ms_{50};  // keepalive resend period
   double small_velocity_threshold_{0.001};
 
   // Safety parameters
@@ -124,12 +127,25 @@ class MotorDriver : public rclcpp::Node {
   // Loop frequency diagnostics
   uint64_t loop_iteration_count_{0};
   std::chrono::steady_clock::time_point last_loop_freq_log_{};
-  std::thread control_loop_thread_;
   // Track last processed cmd_vel stamp to avoid resending identical commands
   std::chrono::steady_clock::time_point last_processed_cmd_vel_stamp_{};
 
   // Incremental sensor polling state & cache
-  int incremental_sensor_index_{0};
+  int incremental_sensor_index_{1};  // 1..4 used for non-encoder groups
+  // Status data collection state machine (6 states: encoders, velocities, currents, logic_bat,
+  // main_bat, temp_status)
+  enum StatusDataState {
+    ENCODERS_SPEED = 0,
+    MOTOR_CURRENTS = 1,
+    LOGIC_BATTERY = 2,
+    MAIN_BATTERY = 3,
+    TEMPERATURE = 4,
+    STATUS_BITS = 5
+  };
+  StatusDataState status_data_state_{ENCODERS_SPEED};
+  std::chrono::steady_clock::time_point last_status_data_collection_{};
+  double status_data_interval_ms_{0.0};  // Will be calculated as status_rate period / 6
+  // Status data collection flags (encoders always read for odom/joint_states)
   uint32_t encoder_left_{0};
   uint8_t encoder_left_status_{0};
   uint32_t encoder_right_{0};

@@ -4,13 +4,14 @@
 
 class CmdReadEncoder : public Cmd {
  public:
-  CmdReadEncoder(RoboClaw &roboclaw, RoboClaw::kMotor motor,
-                 RoboClaw::EncodeResult &encoder)
+  CmdReadEncoder(RoboClaw& roboclaw, RoboClaw::kMotor motor, RoboClaw::EncodeResult& encoder)
       : Cmd(roboclaw, "ReadEncoder", motor), encoder_(encoder) {}
+
+ private:
   void send() override {
     try {
-      roboclaw_.appendToWriteLog("ReadEncoder: encoder: %d (%s), WROTE: ",
-                                 motor_, motor_ == RoboClaw::kM1 ? "M1" : "M2");
+      roboclaw_.appendToWriteLog("ReadEncoder: encoder: %d (%s), WROTE: ", motor_,
+                                 motor_ == RoboClaw::kM1 ? "M1" : "M2");
 
       uint16_t crc = 0;
       roboclaw_.updateCrc(crc, roboclaw_.portAddress_);
@@ -52,25 +53,21 @@ class CmdReadEncoder : public Cmd {
             "CRC of: 0x%02X, but "
             "got: 0x%02X",
             int(crc), int(responseCrc));
-        throw new RoboClaw::TRoboClawException(
-            "[RoboClaw::CmdReadEncoder] INVALID CRC");
+        throw new RoboClaw::TRoboClawException("[RoboClaw::CmdReadEncoder] INVALID CRC");
       }
 
-      roboclaw_.appendToReadLog(", RESULT value: %d, status: %d",
-                                encoder_.value, encoder_.status);
+      roboclaw_.appendToReadLog(", RESULT value: %d, status: %d", encoder_.value, encoder_.status);
       return;
     } catch (...) {
       RCUTILS_LOG_ERROR("[RoboClaw::CmdReadEncoder] Uncaught exception !!!");
     }
   }
 
- private:
-  // Referencing which encoder in the RoboClaw
   typedef enum WHICH_ENC {
     kGETM1ENC = 16,
     kGETM2ENC = 17,
 
   } WHICH_ENC;
 
-  RoboClaw::EncodeResult &encoder_;
+  RoboClaw::EncodeResult& encoder_;
 };

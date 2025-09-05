@@ -6,6 +6,8 @@ class CmdReadEncoderSpeed : public Cmd {
  public:
   CmdReadEncoderSpeed(RoboClaw& roboclaw, RoboClaw::kMotor motor, int32_t& speed)
       : Cmd(roboclaw, "ReadEncoderSpeed", motor), speed_(speed) {}
+
+ private:
   void send() override {
     try {
       roboclaw_.appendToWriteLog("ReadEncoderSpeed: motor: %d (%s), WROTE: ", motor_,
@@ -20,8 +22,6 @@ class CmdReadEncoderSpeed : public Cmd {
     }
   }
 
- private:
-  // Referencing which velocity in the RoboClaw
   typedef enum WHICH_VELOCITY {
     kGETM1SPEED = 18,
     kGETM2SPEED = 19,

@@ -4,17 +4,17 @@
 
 class CmdReadTemperature : public Cmd {
  public:
-  CmdReadTemperature(RoboClaw &roboclaw, float &temperature)
-      : Cmd(roboclaw, "ReadTemperature", RoboClaw::kNone),
-        temperature_(temperature) {}
+  CmdReadTemperature(RoboClaw& roboclaw, float& temperature)
+      : Cmd(roboclaw, "ReadTemperature", RoboClaw::kNone), temperature_(temperature) {}
+
+ private:
   void send() override {
     try {
       roboclaw_.appendToWriteLog("ReadTemperature: WROTE: ");
       uint16_t crc = 0;
       roboclaw_.updateCrc(crc, roboclaw_.portAddress_);
       roboclaw_.updateCrc(crc, RoboClaw::GETTEMPERATURE);
-      roboclaw_.writeN2(false, 2, roboclaw_.portAddress_,
-                        RoboClaw::GETTEMPERATURE);
+      roboclaw_.writeN2(false, 2, roboclaw_.portAddress_, RoboClaw::GETTEMPERATURE);
       uint16_t result = 0;
       uint8_t datum = roboclaw_.readByteWithTimeout2();
       roboclaw_.updateCrc(crc, datum);
@@ -38,13 +38,11 @@ class CmdReadTemperature : public Cmd {
 
       temperature_ = result / 10.0;
     } catch (...) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::CmdReadTemperature] Uncaught exception !!!");
+      RCUTILS_LOG_ERROR("[RoboClaw::CmdReadTemperature] Uncaught exception !!!");
     }
 
     roboclaw_.appendToReadLog(", RESULT: %f", temperature_);
   }
 
- private:
-  float &temperature_;
+  float& temperature_;
 };

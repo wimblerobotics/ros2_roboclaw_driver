@@ -40,7 +40,8 @@ set(msg_files "msg/RoboClawStatus.msg")
 
 set(srv_files "srv/ResetEncoders.srv")
 
-rosidl_generate_interfaces(${PROJECT_NAME} ${msg_files} ${srv_files})
+rosidl_generate_interfaces(${PROJECT_NAME} ${msg_files} ${srv_files}
+  DEPENDENCIES std_msgs)
 
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME}
                               "rosidl_typesupport_cpp")

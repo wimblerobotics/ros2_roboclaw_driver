@@ -58,11 +58,6 @@ RoboClaw::RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent, flo
   m1.execute();
   CmdSetEncoderValue m2(*this, kM2, 0);
   m2.execute();
-  // ros2_roboclaw_driver::srv::ResetEncoders::Request resetRequest;
-  // resetRequest.left = 0;
-  // resetRequest.right = 0;
-  // ros2_roboclaw_driver::srv::ResetEncoders::Response response;
-  // resetEncoders(resetRequest, response);
   g_singleton = this;  // Initial bulk sensor read removed; incremental single-command reads now
 }
 

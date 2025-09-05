@@ -37,9 +37,15 @@ def generate_launch_description():
     # other packages. See the example yaml file provided and the README
     # file for more information.
 
+    if not os.path.exists(configFilePath):
+        raise RuntimeError(f"RoboClaw config file not found: {configFilePath}")
+
     with open(configFilePath, 'r') as file:
-        configParams = yaml.safe_load(
-            file)['motor_driver_node']['ros__parameters']
+        raw = yaml.safe_load(file)
+        try:
+            configParams = raw['ros2_roboclaw_driver_node']['ros__parameters']
+        except Exception as e:
+            raise RuntimeError("Expected top-level key 'ros2_roboclaw_driver_node' with 'ros__parameters' section in config file") from e
 
     ld = LaunchDescription()
 
