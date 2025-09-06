@@ -38,17 +38,16 @@ const char* RoboClaw::motorNames_[] = {"M1", "M2", "NONE"};
 std::mutex RoboClaw::buffered_command_mutex_;
 
 RoboClaw::RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent, float m2MaxCurrent,
-                   std::string device_name, uint8_t device_port, uint32_t baud_rate, bool(do_debug),
+                   std::string device_name, uint8_t portAddress, uint32_t baud_rate, bool(do_debug),
                    bool do_low_level_debug)
     : do_debug_(do_debug),
       do_low_level_debug_(do_low_level_debug),
       baud_rate_(baud_rate),
-      device_port_(device_port),
       maxCommandRetries_(3),
       maxM1Current_(m1MaxCurrent),
       maxM2Current_(m2MaxCurrent),
       device_name_(device_name),
-      portAddress_(128),
+      portAddress_(portAddress_),
       debug_log_(this) {
   openPort();
   RCUTILS_LOG_INFO("[RoboClaw::RoboClaw] RoboClaw software version: %s", getVersion().c_str());
@@ -503,8 +502,8 @@ std::string RoboClaw::getVersion() {
 
 void RoboClaw::openPort() {
   RCUTILS_LOG_INFO("[RoboClaw::openPort] about to open port: %s", device_name_.c_str());
-  device_port_ = open(device_name_.c_str(), O_RDWR | O_NOCTTY);
-  if (device_port_ < 0) {
+  serial_fd_ = open(device_name_.c_str(), O_RDWR | O_NOCTTY);
+  if (serial_fd_ < 0) {
     RCUTILS_LOG_ERROR(
         "[RoboClaw::openPort] Unable to open USB port: %s, errno: (%d) "
         "%s",
@@ -516,22 +515,13 @@ void RoboClaw::openPort() {
   struct termios portOptions;
   int ret = 0;
 
-  ret = tcgetattr(device_port_, &portOptions);
+  ret = tcgetattr(serial_fd_, &portOptions);
   if (ret < 0) {
     RCUTILS_LOG_ERROR(
         "[RoboClaw::openPort] Unable to get terminal options "
         "(tcgetattr), error: %d: %s",
         errno, strerror(errno));
     throw new TRoboClawException("[RoboClaw::openPort] Unable to get terminal options (tcgetattr)");
-  }
-
-  if (cfsetispeed(&portOptions, B38400) < 0) {
-    RCUTILS_LOG_ERROR(
-        "[RoboClaw::openPort] Unable to set terminal speed "
-        "(cfsetispeed)");
-    throw new TRoboClawException(
-        "[RoboClaw::openPort] Unable to set terminal speed "
-        "(cfsetispeed)");
   }
 
   speed_t baud;
@@ -572,6 +562,7 @@ void RoboClaw::openPort() {
         "[RoboClaw::openPort] Unable to set terminal input speed "
         "(cfsetispeed)");
   }
+
   if (cfsetospeed(&portOptions, baud) < 0) {
     RCUTILS_LOG_ERROR(
         "[RoboClaw::openPort] Unable to set terminal speed "
@@ -604,7 +595,7 @@ void RoboClaw::openPort() {
   portOptions.c_cc[VMIN] = 1;   // Non-blocking read
   portOptions.c_cc[VTIME] = 0;  // Timeout of 0.5 seconds
 
-  if (tcsetattr(device_port_, TCSANOW, &portOptions) != 0) {
+  if (tcsetattr(serial_fd_, TCSANOW, &portOptions) != 0) {
     RCUTILS_LOG_ERROR(
         "[RoboClaw::openPort] Unable to set terminal options "
         "(tcsetattr)");
@@ -616,7 +607,7 @@ void RoboClaw::openPort() {
 
 uint8_t RoboClaw::readByteWithTimeout2() {
   struct pollfd ufd[1];
-  ufd[0].fd = device_port_;
+  ufd[0].fd = serial_fd_;
   ufd[0].events = POLLIN;
 
   int retval = poll(ufd, 1, 11);
@@ -635,7 +626,7 @@ uint8_t RoboClaw::readByteWithTimeout2() {
     throw new TRoboClawException("[RoboClaw::readByteWithTimeout2 Error on socket");
   } else if (ufd[0].revents & POLLIN) {
     unsigned char buffer[1];
-    ssize_t bytesRead = ::read(device_port_, buffer, sizeof(buffer));
+    ssize_t bytesRead = ::read(serial_fd_, buffer, sizeof(buffer));
     if (bytesRead != 1) {
       RCUTILS_LOG_ERROR(
           "[RoboClaw::readByteWithTimeout2 Failed to read 1 byte, read: "
@@ -660,10 +651,6 @@ uint8_t RoboClaw::readByteWithTimeout2() {
   return 0;
 }
 
-// readSensorGroup deprecated; retained for reference but no longer used (incremental per-call
-// getters now)
-void RoboClaw::readSensorGroup() { /* deprecated */ }
-
 bool RoboClaw::resetEncoders(ros2_roboclaw_driver::srv::ResetEncoders::Request& request,
                              ros2_roboclaw_driver::srv::ResetEncoders::Response& response) {
   try {
@@ -679,7 +666,7 @@ bool RoboClaw::resetEncoders(ros2_roboclaw_driver::srv::ResetEncoders::Request& 
 }
 
 void RoboClaw::restartPort() {
-  close(device_port_);
+  close(serial_fd_);
   usleep(200000);
   openPort();
 }
@@ -712,18 +699,18 @@ void RoboClaw::updateCrc(uint16_t& crc, uint8_t data) {
 void RoboClaw::writeByte2(uint8_t byte) {
   ssize_t result;
   do {
-    result = ::write(device_port_, &byte, 1);
-    fsync(device_port_);  // Ensure byte is written to hardware
+    result = ::write(serial_fd_, &byte, 1);
+    // fsync(serial_fd_);  // Ensure byte is written to hardware
     // RCUTILS_LOG_INFO("--> wrote: 0x%02X, result: %ld", byte, result);  //
     // ####
     if (do_debug_ || do_low_level_debug_) {
       if (result == 1) {
-        appendToWriteLog("%02X ", byte);
+        // appendToWriteLog("%02X ", byte);
         if (do_low_level_debug_) {
           RCUTILS_LOG_INFO("Write: %02X", byte);
         }
       } else {
-        appendToWriteLog("~%02X ", byte);
+        // appendToWriteLog("~%02X ", byte);
         if (do_low_level_debug_) {
           RCUTILS_LOG_ERROR("Write fail: %02X", byte);
         }
@@ -759,6 +746,7 @@ void RoboClaw::writeN2(bool sendCRC, uint8_t cnt, ...) {
     writeByte2(crc >> 8);
     writeByte2(crc);
 
+    tcdrain(serial_fd_);
     uint8_t response = readByteWithTimeout2();
     if (response != 0xFF) {
       char msg[128];

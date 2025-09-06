@@ -1,5 +1,7 @@
 #pragma once
 
+#include <termios.h>
+
 #include "roboclaw.h"
 
 class Cmd {
@@ -11,6 +13,9 @@ class Cmd {
     quiet_ms = roboclaw_.getRetryQuietMs();
 
     for (int attempt = 0; attempt < max_attempts; ++attempt) {
+      if (attempt == 0) {
+      }
+
       try {
         std::lock_guard<std::mutex> lock(RoboClaw::buffered_command_mutex_);
         send();
@@ -24,10 +29,12 @@ class Cmd {
         roboclaw_.debug_log_.showLog();
         RCUTILS_LOG_ERROR("[RoboClaw::Cmd::execute] Uncaught exception !!! attempt: %d", attempt);
       }
+
       if (attempt == max_attempts - 1) {
         RCUTILS_LOG_ERROR("[RoboClaw::Cmd::execute] RETRY COUNT EXCEEDED (%d)", max_attempts);
         throw new RoboClaw::TRoboClawException("[RoboClaw::Cmd::execute] RETRY COUNT EXCEEDED");
       }
+
       if (quiet_ms > 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(quiet_ms));
       }

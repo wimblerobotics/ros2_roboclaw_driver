@@ -48,8 +48,8 @@ ros2_roboclaw_driver_node:  # Must match the node name in motor_driver_node.cpp.
     # command in this number of seconds, stop the motors.
     max_seconds_uncommanded_travel: 0.25
 
-    publish_joint_states: true
-    publish_odom: true
+    publish_joint_states: false
+    publish_odom: false
 
     # Based upon your particular motor gearing and encoders.
     # These values are used to scale cmd_vel commands
@@ -64,11 +64,7 @@ ros2_roboclaw_driver_node:  # Must match the node name in motor_driver_node.cpp.
 
     # Topic name to be used to publish the RoboClaw status messages.
     roboclaw_status_topic: "roboclaw_status"
-
-    # How often, in Hz, to sense the various RoboClaw internal values.
-    # This is the rate that Joint State, Odomentry and
-    # RoboClaw status messages are published.
-    sensor_rate_hz: 20.0
+    loop_sleep_ms: 10
 
     # Debugging control.
     do_debug: true # True => Log RoboClaw commands and responses.

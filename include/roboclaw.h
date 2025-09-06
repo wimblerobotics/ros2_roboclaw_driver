@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (c) 2025 Michael Wimble. https://github.com/wimblerobotics/ros2_roboclaw_driver
+// Copyright (c) 2025 Michael Wimble.
+// https://github.com/wimblerobotics/ros2_roboclaw_driver
 #pragma once
 
 #include <rcutils/logging_macros.h>
@@ -77,7 +78,7 @@ class RoboClaw {
 
   // Constructor.
   RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent, float m2MaxCurrent,
-           std::string device_name, uint8_t device_port, uint32_t baud_rate, bool do_debug = false,
+           std::string device_name, uint8_t portAddress, uint32_t baud_rate, bool do_debug = false,
            bool do_low_level_debug = false);
 
   ~RoboClaw();
@@ -180,9 +181,6 @@ class RoboClaw {
   // Get singleton instance of class.
   static RoboClaw* singleton();
 
-  // Read a group of sensors from the RoboClaw.
-  void readSensorGroup();
-
  protected:
   // Write a stream of bytes to the device.
   void writeN2(bool sendCRC, uint8_t cnt, ...);
@@ -283,7 +281,7 @@ class RoboClaw {
   } ROBOCLAW_COMMAND;
 
   int baud_rate_;          // Baud rate for RoboClaw connection.
-  int device_port_;        // Unix file descriptor for RoboClaw connection.
+  int serial_fd_;          // Unix file descriptor for RoboClaw connection.
   int maxCommandRetries_;  // Maximum number of times to retry a RoboClaw
   // command.
   float maxM1Current_;       // Maximum allowed M1 current.

@@ -3,10 +3,13 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <geometry_msgs/msg/twist.hpp>
 #include <memory>
-#include <mutex>  // Include mutex header
+#include <mutex>
 #include <nav_msgs/msg/odometry.hpp>
+#include <queue>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <thread>
@@ -46,6 +49,7 @@ class MotorDriver {
   void logParameters() const;
   void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
   void processCmdVel();
+  void processQueuedCommands();  // TeensyV2-style command processing
   void publisherThread();
   void setupStatsTimer();
   void controlLoopCallback();  // Timer callback for unified high-rate loop
@@ -104,7 +108,6 @@ class MotorDriver {
   float max_runaway_seconds_{0.5f};
   float max_runaway_linear_velocity_{0.2f};
   float max_runaway_angular_velocity_{0.5f};
-  bool log_each_cmd_vel_{true};
 
   // Cached latest cmd_vel
   uint64_t next_cmd_vel_seq_{1};
@@ -115,20 +118,25 @@ class MotorDriver {
   double cmd_latency_ema_ms_{0.0};
   double cmd_latency_max_ms_{0.0};
   std::chrono::steady_clock::time_point last_cmd_metrics_log_{};
-  std::chrono::steady_clock::time_point last_motor_command_send_time_{};
-  double last_sent_x_{0.0};
-  double last_sent_yaw_{0.0};
-  std::chrono::steady_clock::time_point last_processed_seq_time_{};
-  std::chrono::steady_clock::time_point prev_processed_seq_time_{};
   // Cached PID values (loaded at init, reused in status publishing)
   RoboClaw::TPIDQ cached_m1_pid_{};
   RoboClaw::TPIDQ cached_m2_pid_{};
 
-  // Loop frequency diagnostics
+  // Command queue for TeensyV2-style processing
+  std::queue<geometry_msgs::msg::Twist> cmd_queue_;
+  std::mutex cmd_queue_mutex_;
+  std::chrono::steady_clock::time_point last_command_time_;
+  geometry_msgs::msg::Twist last_sent_command_;
+  bool command_initialized_{false};
+  // Track last processed cmd_vel stamp to avoid resending identical commands
+  std::chrono::steady_clock::time_point last_processed_cmd_vel_stamp_;
+  // Variables for TeensyV2-style command filtering
+  int32_t last_m1_qpps_{0};
+  int32_t last_m2_qpps_{0};
+  std::chrono::steady_clock::time_point last_cmd_time_;
+  // Control loop iteration tracking
   uint64_t loop_iteration_count_{0};
   std::chrono::steady_clock::time_point last_loop_freq_log_{};
-  // Track last processed cmd_vel stamp to avoid resending identical commands
-  std::chrono::steady_clock::time_point last_processed_cmd_vel_stamp_{};
 
   // Incremental sensor polling state & cache
   int incremental_sensor_index_{1};  // 1..4 used for non-encoder groups

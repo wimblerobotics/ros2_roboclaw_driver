@@ -55,15 +55,15 @@ ament_target_dependencies(ros2_roboclaw_driver_node rclcpp geometry_msgs
 
 target_link_libraries(ros2_roboclaw_driver_node "${cpp_typesupport_target}")
 
-# Install config files.
-install(DIRECTORY config DESTINATION share/${PROJECT_NAME}/)
-
-# Install launch files.
-install(DIRECTORY launch DESTINATION share/${PROJECT_NAME}/)
-
-install(TARGETS ros2_roboclaw_driver_node DESTINATION lib/${PROJECT_NAME})
-
 install(DIRECTORY include/ DESTINATION include/)
+
+install(TARGETS ros2_roboclaw_driver_node
+        DESTINATION lib/${PROJECT_NAME})
+
+# Install launch files
+install(DIRECTORY launch config
+  DESTINATION share/${PROJECT_NAME}/
+)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
