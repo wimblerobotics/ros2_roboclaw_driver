@@ -15,6 +15,8 @@
 #include <rclcpp/rclcpp.hpp>
 #include <string>
 #include <thread>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include "ros2_roboclaw_driver/RoboClaw.h"
 #include "ros2_roboclaw_driver/roboclaw_cmd_do_buffered_m1m2_drive_speed_accel_distance.h"
@@ -106,6 +108,14 @@ void MotorDriver::initializeParameters(rclcpp::Node& node) {
   node.get_parameter("max_runaway_linear_velocity", max_runaway_linear_velocity_);
   node.get_parameter("max_runaway_angular_velocity", max_runaway_angular_velocity_);
   logParameters();
+
+  // Precompute scaling factors (Option A distance scaling) with protection
+  if (quad_pulses_per_meter_ > 0) {
+    meters_per_pulse_ = 1.0 / static_cast<double>(quad_pulses_per_meter_);
+  }
+  if (quad_pulses_per_revolution_ > 0) {
+    radians_per_pulse_ = (2.0 * M_PI) / static_cast<double>(quad_pulses_per_revolution_);
+  }
 }
 
 void MotorDriver::validateRequiredParametersOrDie() {
@@ -288,6 +298,7 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
 
   if (publish_odom_) {
     odom_publisher_ = node_->create_publisher<nav_msgs::msg::Odometry>("odom", qos);
+    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(node_);
   }
 
   // Start unified control loop timer (publishes and drives motors)
@@ -360,6 +371,8 @@ void MotorDriver::controlLoopCallback() {
     float linear_x = 0;
     float angular_z = 0;
   } current_velocity;
+  static double joint_left_accum = 0.0;  // continuous wheel angle (rad)
+  static double joint_right_accum = 0.0; // continuous wheel angle (rad)
 
   // Initialize status data collection interval (1/6 of status publish period)
   if (!status_interval_initialized) {
@@ -436,12 +449,25 @@ void MotorDriver::controlLoopCallback() {
       sensor_msgs::msg::JointState js;
       js.header.stamp = clock->now();
       js.name = {"front_left_wheel", "front_right_wheel"};
-      double radians_left = fmod((encoder_left_ / quad_pulses_per_revolution_) * 2.0 * M_PI, 2.0 * M_PI);
-      double radians_right = fmod((encoder_right_ / quad_pulses_per_revolution_) * 2.0 * M_PI, 2.0 * M_PI);
-      double velocity_left_rad_s = velocity_left_ / wheel_radius_;
-      double velocity_right_rad_s = velocity_right_ / wheel_radius_;
-      js.position = {radians_left, radians_right};
-      js.velocity = {velocity_left_rad_s, velocity_right_rad_s};
+      // Continuous accumulation using Option A scaling for distance -> radians via pulses->revs->radians
+      // Use pulses to radians directly if available
+      if (radians_per_pulse_ > 0.0) {
+        joint_left_accum = encoder_left_ * radians_per_pulse_;
+        joint_right_accum = encoder_right_ * radians_per_pulse_;
+      }
+      // Instantaneous wheel angular velocity from pulses/sec
+      double wheel_left_rad_s = 0.0;
+      double wheel_right_rad_s = 0.0;
+      if (radians_per_pulse_ > 0.0) {
+        wheel_left_rad_s = velocity_left_ * radians_per_pulse_;
+        wheel_right_rad_s = velocity_right_ * radians_per_pulse_;
+      }
+      js.position.clear();
+      js.position.push_back(joint_left_accum);
+      js.position.push_back(joint_right_accum);
+      js.velocity.clear();
+      js.velocity.push_back(wheel_left_rad_s);
+      js.velocity.push_back(wheel_right_rad_s);
       joint_state_publisher_->publish(js);
       last_joint_pub = now_tp;
     }
@@ -455,74 +481,81 @@ void MotorDriver::controlLoopCallback() {
         last_right_encoder = encoder_right_;
         encoders_initialized = true;
       }
+      // Actual dt
+      double dt = std::chrono::duration<double>(now_tp - last_odom_pub).count();
+      if (dt <= 0.0) dt = 1.0 / std::max(1, odom_rate_hz_);
 
-      // Calculate encoder deltas
       int32_t delta_left = encoder_left_ - last_left_encoder;
       int32_t delta_right = encoder_right_ - last_right_encoder;
       last_left_encoder = encoder_left_;
       last_right_encoder = encoder_right_;
 
-      // Convert encoder counts to distances (simplified calculation)
-      double meters_per_pulse = (2.0 * M_PI * wheel_radius_) / quad_pulses_per_revolution_;
-      double dist_left = delta_left * meters_per_pulse;
-      double dist_right = delta_right * meters_per_pulse;
+      // Distances using Option A scaling
+      double dist_left = delta_left * meters_per_pulse_;
+      double dist_right = delta_right * meters_per_pulse_;
 
-      // Calculate pose changes
       double delta_distance = (dist_left + dist_right) / 2.0;
       double delta_theta = (dist_right - dist_left) / wheel_separation_;
 
-      // Update pose using proper differential drive kinematics
       current_pose.x += delta_distance * cos(current_pose.theta + delta_theta / 2.0);
       current_pose.y += delta_distance * sin(current_pose.theta + delta_theta / 2.0);
       current_pose.theta += delta_theta;
+      // Normalize
+      current_pose.theta = std::atan2(std::sin(current_pose.theta), std::cos(current_pose.theta));
 
-      // Normalize angle to [-pi, pi]
-      while (current_pose.theta > M_PI)
-        current_pose.theta -= 2.0 * M_PI;
-      while (current_pose.theta < -M_PI)
-        current_pose.theta += 2.0 * M_PI;
+      // Instantaneous (from wheel velocities) vs integrated
+      double v_left = 0.0, v_right = 0.0;
+      if (meters_per_pulse_ > 0.0) {
+        // velocity_* is pulses/sec; convert to m/s
+        v_left = velocity_left_ * meters_per_pulse_;
+        v_right = velocity_right_ * meters_per_pulse_;
+      }
+      current_velocity.linear_x = (v_left + v_right) / 2.0;
+      current_velocity.angular_z = (v_right - v_left) / wheel_separation_;
 
-      // Calculate velocities (distance/time)
-      double dt = 1.0 / std::max(1, odom_rate_hz_);
-      current_velocity.linear_x = delta_distance / dt;
-      current_velocity.angular_z = delta_theta / dt;
-
-      // Create and populate odometry message
       nav_msgs::msg::Odometry odom;
       odom.header.stamp = clock->now();
       odom.header.frame_id = "odom";
       odom.child_frame_id = "base_link";
-
-      // Position
       odom.pose.pose.position.x = current_pose.x;
       odom.pose.pose.position.y = current_pose.y;
       odom.pose.pose.position.z = 0.0;
-
-      // Orientation (quaternion from yaw)
       double half_yaw = current_pose.theta / 2.0;
       odom.pose.pose.orientation.x = 0.0;
       odom.pose.pose.orientation.y = 0.0;
-      odom.pose.pose.orientation.z = sin(half_yaw);
-      odom.pose.pose.orientation.w = cos(half_yaw);
-
-      // Velocity
+      odom.pose.pose.orientation.z = std::sin(half_yaw);
+      odom.pose.pose.orientation.w = std::cos(half_yaw);
       odom.twist.twist.linear.x = current_velocity.linear_x;
       odom.twist.twist.linear.y = 0.0;
-      odom.twist.twist.linear.z = 0.0;
-      odom.twist.twist.angular.x = 0.0;
-      odom.twist.twist.angular.y = 0.0;
       odom.twist.twist.angular.z = current_velocity.angular_z;
 
-      // Set covariance (optional - use identity for now)
+      // Improved covariance (simple heuristic)
+      // Position covariance grows modestly with motion; yaw higher when rotating
+      double lin_var = 0.02; // m^2 baseline
+      double yaw_var = 0.05 + 0.1 * std::fabs(current_velocity.angular_z); // rad^2
       std::fill(odom.pose.covariance.begin(), odom.pose.covariance.end(), 0.0);
+      odom.pose.covariance[0] = lin_var;    // x
+      odom.pose.covariance[7] = lin_var;    // y
+      odom.pose.covariance[35] = yaw_var;   // yaw
       std::fill(odom.twist.covariance.begin(), odom.twist.covariance.end(), 0.0);
-      odom.pose.covariance[0] = 0.1;    // x
-      odom.pose.covariance[7] = 0.1;    // y
-      odom.pose.covariance[35] = 0.1;   // yaw
-      odom.twist.covariance[0] = 0.1;   // vx
-      odom.twist.covariance[35] = 0.1;  // vyaw
+      odom.twist.covariance[0] = lin_var;   // vx
+      odom.twist.covariance[35] = yaw_var;  // wyaw
 
       odom_publisher_->publish(odom);
+
+      // TF
+      if (tf_broadcaster_) {
+        geometry_msgs::msg::TransformStamped tf_msg;
+        tf_msg.header.stamp = odom.header.stamp;
+        tf_msg.header.frame_id = "odom";
+        tf_msg.child_frame_id = "base_link";
+        tf_msg.transform.translation.x = current_pose.x;
+        tf_msg.transform.translation.y = current_pose.y;
+        tf_msg.transform.translation.z = 0.0;
+        tf_msg.transform.rotation = odom.pose.pose.orientation;
+        tf_broadcaster_->sendTransform(tf_msg);
+      }
+
       last_odom_pub = now_tp;
     }
 

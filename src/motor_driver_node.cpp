@@ -31,7 +31,8 @@ int main(int argc, char* argv[]) {
 
   motorDriver.setStatusPublisher(statusPublisher);
 
-  rclcpp::executors::MultiThreadedExecutor executor;
+  // Use single-threaded executor (all work done in timers/subscriptions serially)
+  rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(node);
   executor.spin();
 

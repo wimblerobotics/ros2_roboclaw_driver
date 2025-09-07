@@ -28,6 +28,8 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <thread>
+#include <tf2_ros/transform_broadcaster.h>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 
 #include "ros2_roboclaw_driver/RoboClaw.h"
 #include "ros2_roboclaw_driver/msg/robo_claw_status.hpp"
@@ -139,6 +141,13 @@ class MotorDriver {
   float sensor_update_rate_;  // Hz
   float wheel_radius_;
   float wheel_separation_;
+
+  // Precomputed scaling factors
+  double meters_per_pulse_{0.0};
+  double radians_per_pulse_{0.0};
+
+  // TF broadcaster for odom->base_link
+  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
 
   // High-rate loop config
   int loop_sleep_ms_{10};  // 50Hz control rate
