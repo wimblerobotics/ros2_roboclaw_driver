@@ -10,9 +10,7 @@
 
 #include <algorithm>
 #include <chrono>
-#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
-#include <iomanip>
 #include <rclcpp/qos.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <string>
@@ -26,7 +24,6 @@
 #include "ros2_roboclaw_driver/roboclaw_cmd_read_main_battery_voltage.h"
 #include "ros2_roboclaw_driver/roboclaw_cmd_read_motor_currents.h"
 #include "ros2_roboclaw_driver/roboclaw_cmd_read_motor_velocity_pidq.h"
-#include "ros2_roboclaw_driver/roboclaw_cmd_read_speed_m1.h"
 #include "ros2_roboclaw_driver/roboclaw_cmd_read_status.h"
 #include "ros2_roboclaw_driver/roboclaw_cmd_read_temperature.h"
 
@@ -224,8 +221,6 @@ void MotorDriver::processCmdVel() {
       int32_t speed = 0;
       CmdReadEncoderSpeed cmd_m1_read_encoder_speed(*roboclaw_, RoboClaw::kM1, speed);
       cmd_m1_read_encoder_speed.execute();
-      // CmdReadSpeedM1 cmd1(*roboclaw_, speed);
-      // cmd1.execute();
       RCUTILS_LOG_DEBUG("M1 speed: %d", speed);
     } catch (const std::exception& ex) {
       RCUTILS_LOG_ERROR("Failed to send motor command for cmd_vel: %s", ex.what());
@@ -298,10 +293,7 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
   // Start unified control loop timer (publishes and drives motors)
   auto timer_period = std::chrono::milliseconds(loop_sleep_ms_);
   control_timer_ = node_->create_wall_timer(timer_period, std::bind(&MotorDriver::controlLoopCallback, this));
-  // setupStatsTimer(); //###
 }
-
-// publisherThread removed (functionality moved into controlLoop)
 
 MotorDriver& MotorDriver::singleton() {
   if (!g_singleton) {
@@ -348,8 +340,7 @@ void MotorDriver::getFreshEncoders(uint32_t& encoder_left_, uint32_t& encoder_ri
 void MotorDriver::controlLoopCallback() {
   auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
 
-  // Process queued commands with TeensyV2-style filtering (highest priority)
-  // processQueuedCommands();
+  // Process cmd_vel with TeensyV2-style filtering
   processCmdVel();
 
   // Publish timing trackers
