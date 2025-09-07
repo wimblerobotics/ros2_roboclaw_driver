@@ -1,6 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright (c) 2025 Michael Wimble.
-// https://github.com/wimblerobotics/ros2_roboclaw_driver
 #pragma once
 
 #include <rcutils/logging_macros.h>
@@ -14,7 +11,7 @@
 #include <sstream>
 #include <string>
 
-#include "ros2_roboclaw_driver/srv/reset_encoders.hpp"
+// #include "ros2_ros2_roboclaw_driver/srv/reset_encoders.hpp"
 
 /* The expected client is motor_driver.cpp
  * The expected node is motor_driver_node.cpp
@@ -29,12 +26,43 @@
  * device.
  */
 
-#define SetDWORDval(arg) \
-  (uint8_t)(arg >> 24), (uint8_t)(arg >> 16), (uint8_t)(arg >> 8), (uint8_t)arg
+#define SetDWORDval(arg) (uint8_t)(arg >> 24), (uint8_t)(arg >> 16), (uint8_t)(arg >> 8), (uint8_t)arg
 
 class RoboClaw {
  public:
   enum kMotor { kM1 = 0, kM2 = 1, kNone = 2 };
+
+  // RoboClaw error status bit definitions (complete specification)
+  enum class RoboClawError : uint32_t {
+    // Error flags (bits 0-15)
+    ERROR_ESTOP = 0x00000001,      ///< Emergency stop triggered
+    ERROR_TEMP = 0x00000002,       ///< Temperature fault
+    ERROR_TEMP2 = 0x00000004,      ///< Secondary temperature fault
+    ERROR_LBATHIGH = 0x00000010,   ///< Logic battery voltage too high
+    ERROR_LBATLOW = 0x00000020,    ///< Logic battery voltage too low
+    ERROR_FAULTM1 = 0x00000040,    ///< Motor 1 driver fault
+    ERROR_FAULTM2 = 0x00000080,    ///< Motor 2 driver fault
+    ERROR_SPEED1 = 0x00000100,     ///< Motor 1 speed error
+    ERROR_SPEED2 = 0x00000200,     ///< Motor 2 speed error
+    ERROR_POS1 = 0x00000400,       ///< Motor 1 position error
+    ERROR_POS2 = 0x00000800,       ///< Motor 2 position error
+    ERROR_CURRENTM1 = 0x00001000,  ///< Motor 1 current error
+    ERROR_CURRENTM2 = 0x00002000,  ///< Motor 2 current error
+
+    // Warning flags (bits 16-31)
+    WARN_OVERCURRENTM1 = 0x00010000,  ///< Motor 1 overcurrent warning
+    WARN_OVERCURRENTM2 = 0x00020000,  ///< Motor 2 overcurrent warning
+    WARN_MBATHIGH = 0x00040000,       ///< Main battery voltage too high warning
+    WARN_MBATLOW = 0x00080000,        ///< Main battery voltage too low warning
+    WARN_TEMP = 0x00100000,           ///< Temperature warning
+    WARN_TEMP2 = 0x00200000,          ///< Secondary temperature warning
+    WARN_S4 = 0x00400000,             ///< S4 signal warning
+    WARN_S5 = 0x00800000,             ///< S5 signal warning
+    WARN_CAN = 0x10000000,            ///< CAN communication warning (MCP models only)
+    WARN_BOOT = 0x20000000,           ///< Boot mode warning
+    WARN_OVERREGENM1 = 0x40000000,    ///< Motor 1 over-regeneration warning
+    WARN_OVERREGENM2 = 0x80000000     ///< Motor 2 over-regeneration warning
+  };
 
   // Bit positions used to build alarms.
   enum {
@@ -77,9 +105,8 @@ class RoboClaw {
   } EncodeResult;
 
   // Constructor.
-  RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent, float m2MaxCurrent,
-           std::string device_name, uint8_t portAddress, uint32_t baud_rate, bool do_debug = false,
-           bool do_low_level_debug = false);
+  RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent, float m2MaxCurrent, std::string device_name,
+           uint8_t device_port, uint32_t baud_rate, bool do_debug = false, bool do_low_level_debug = false);
 
   ~RoboClaw();
 
@@ -97,17 +124,14 @@ class RoboClaw {
     va_end(args);
   }
 
-  void decodeErrorStatus(uint32_t error_status, char* buffer, size_t size) const;
-
-  void doMixedSpeedAccelDist(uint32_t accel_quad_pulses_per_second,
-                             int32_t m1_quad_pulses_per_second, uint32_t m1_max_distance,
-                             int32_t m2_quad_pulses_per_second, uint32_t m2_max_distance);
+  void doMixedSpeedAccelDist(uint32_t accel_quad_pulses_per_second, int32_t m1_quad_pulses_per_second,
+                             uint32_t m1_max_distance, int32_t m2_quad_pulses_per_second, uint32_t m2_max_distance);
 
   // Get RoboClaw error status bits.
   uint32_t getErrorStatus();
 
   // Get RoboClaw error status as a string.
-  std::string getErrorString();
+  void decodeErrorStatus(uint32_t error_status, char* buffer, size_t size) const;
 
   // Get logical battery voltage level.
   // Note: This is the voltage level of the battery powering the logic
@@ -153,6 +177,21 @@ class RoboClaw {
   // PIDQ = {p, i, d, qpps}
   TPIDQ getPIDQM2();
 
+  // Get retry count for commands
+  int getRetryCount() const {
+    return retry_count_;
+  }
+
+  // Get retry quiet time in milliseconds
+  int getRetryQuietMs() const {
+    return retry_quiet_ms_;
+  }
+
+  void setRetryParams(int retry_count, int retry_quiet_ms) {
+    retry_count_ = retry_count;
+    retry_quiet_ms_ = retry_quiet_ms;
+  }
+
   // Get the temperature of the RoboClaw.
   // Note: This is the temperature of the RoboClaw controller board itself.
   float getTemperature();
@@ -163,23 +202,14 @@ class RoboClaw {
   // Get RoboClaw software version.
   std::string getVersion();
 
-  // Retry parameter accessors (populated by MotorDriver after construction)
-  int getRetryCount() const {
-    return retry_count_param_;
-  }
-  int getRetryQuietMs() const {
-    return retry_quiet_ms_param_;
-  }
-  void setRetryParams(int count, int quiet_ms) {
-    retry_count_param_ = count;
-    retry_quiet_ms_param_ = quiet_ms;
-  }
-
   // Stop motion.
   void stop();
 
   // Get singleton instance of class.
   static RoboClaw* singleton();
+
+  // Read a group of sensors from the RoboClaw.
+  void readSensorGroup();
 
  protected:
   // Write a stream of bytes to the device.
@@ -280,17 +310,15 @@ class RoboClaw {
     GETM1MAXCURRENT = 135
   } ROBOCLAW_COMMAND;
 
-  int baud_rate_;          // Baud rate for RoboClaw connection.
-  int serial_fd_;          // Unix file descriptor for RoboClaw connection.
-  int maxCommandRetries_;  // Maximum number of times to retry a RoboClaw
-  // command.
+  int baud_rate_;            // Baud rate for RoboClaw connection.
+  int serial_fd_;            // Unix file descriptor for RoboClaw connection.
+  int maxCommandRetries_;    // Maximum number of times to retry a RoboClaw
+                             // command.
   float maxM1Current_;       // Maximum allowed M1 current.
   float maxM2Current_;       // Maximum allowed M2 current.
   int motorAlarms_;          // Motors alarms. Bit-wise OR of contributors.
   std::string device_name_;  // Device name of RoboClaw device.
   int portAddress_;          // Port number of RoboClaw device under control
-  int retry_count_param_{3};
-  int retry_quiet_ms_param_{0};
 
   // Get velocity (speed) result from the RoboClaw controller.
   int32_t getVelocityResult(uint8_t command);
@@ -311,8 +339,9 @@ class RoboClaw {
   void restartPort();
 
   // Reset the encoders.
-  bool resetEncoders(ros2_roboclaw_driver::srv::ResetEncoders::Request& request,
-                     ros2_roboclaw_driver::srv::ResetEncoders::Response& response);
+  // bool resetEncoders(
+  //     // ros2_roboclaw_driver::srv::ResetEncoders::Request &request,
+  // ros2_roboclaw_driver::srv::ResetEncoders::Response &response);
 
   // Set the PID for motor M1.
   void setM1PID(float p, float i, float d, uint32_t qpps);
@@ -330,14 +359,17 @@ class RoboClaw {
 
   class DebugLog {
    public:
-    DebugLog(RoboClaw* roboclaw)
-        : roboclaw_(roboclaw), next_read_log_index_(0), next_write_log_index_(0) {}
+    DebugLog(RoboClaw* roboclaw) : roboclaw_(roboclaw), next_read_log_index_(0), next_write_log_index_(0) {}
     ~DebugLog() {}
 
     void appendToReadLog(const char* format, va_list args) {
+      if (!roboclaw_) {
+        return;
+      }
+
       if (roboclaw_->do_debug_) {
-        int written = vsnprintf(&read_log_[next_read_log_index_],
-                                sizeof(read_log_) - next_read_log_index_, format, args);
+        int written =
+            vsnprintf(&read_log_[next_read_log_index_], sizeof(read_log_) - next_read_log_index_, format, args);
         if (written > 0) {
           next_read_log_index_ += written;
         }
@@ -345,19 +377,24 @@ class RoboClaw {
     }
 
     void appendToWriteLog(const char* format, va_list args) {
+      if (!roboclaw_) {
+        return;
+      }
+
       if (roboclaw_->do_debug_) {
-        int written = vsnprintf(&write_log_[next_write_log_index_],
-                                sizeof(write_log_) - next_write_log_index_, format, args);
+        int written =
+            vsnprintf(&write_log_[next_write_log_index_], sizeof(write_log_) - next_write_log_index_, format, args);
         if (written > 0) {
           next_write_log_index_ += written;
-        }
-        if ((next_write_log_index_ > 0) && (write_log_[0] == '8')) {
-          RCUTILS_LOG_INFO("Whoops!");
         }
       }
     }
 
     void showLog() {
+      if (!roboclaw_) {
+        return;
+      }
+
       if (roboclaw_->do_debug_) {
         RCUTILS_LOG_INFO("[RoboClaw::DebugLog] %s, READ: %s", write_log_, read_log_);
         read_log_[0] = '\0';
@@ -384,6 +421,7 @@ class RoboClaw {
   friend class CmdReadMainBatteryVoltage;
   friend class CmdReadMotorCurrents;
   friend class CmdReadMotorVelocityPIDQ;
+  friend class CmdReadSpeedM1;
   friend class CmdReadStatus;
   friend class CmdReadTemperature;
   friend class CmdSetEncoderValue;
@@ -395,35 +433,7 @@ class RoboClaw {
   static const char* motorNames_[];
   static std::mutex buffered_command_mutex_;  // Global mutex for buffered commands
 
-  // RoboClaw error status bit definitions (complete specification)
-  enum class RoboClawError : uint32_t {
-    // Error flags (bits 0-15)
-    ERROR_ESTOP = 0x00000001,      ///< Emergency stop triggered
-    ERROR_TEMP = 0x00000002,       ///< Temperature fault
-    ERROR_TEMP2 = 0x00000004,      ///< Secondary temperature fault
-    ERROR_LBATHIGH = 0x00000010,   ///< Logic battery voltage too high
-    ERROR_LBATLOW = 0x00000020,    ///< Logic battery voltage too low
-    ERROR_FAULTM1 = 0x00000040,    ///< Motor 1 driver fault
-    ERROR_FAULTM2 = 0x00000080,    ///< Motor 2 driver fault
-    ERROR_SPEED1 = 0x00000100,     ///< Motor 1 speed error
-    ERROR_SPEED2 = 0x00000200,     ///< Motor 2 speed error
-    ERROR_POS1 = 0x00000400,       ///< Motor 1 position error
-    ERROR_POS2 = 0x00000800,       ///< Motor 2 position error
-    ERROR_CURRENTM1 = 0x00001000,  ///< Motor 1 current error
-    ERROR_CURRENTM2 = 0x00002000,  ///< Motor 2 current error
-
-    // Warning flags (bits 16-31)
-    WARN_OVERCURRENTM1 = 0x00010000,  ///< Motor 1 overcurrent warning
-    WARN_OVERCURRENTM2 = 0x00020000,  ///< Motor 2 overcurrent warning
-    WARN_MBATHIGH = 0x00040000,       ///< Main battery voltage too high warning
-    WARN_MBATLOW = 0x00080000,        ///< Main battery voltage too low warning
-    WARN_TEMP = 0x00100000,           ///< Temperature warning
-    WARN_TEMP2 = 0x00200000,          ///< Secondary temperature warning
-    WARN_S4 = 0x00400000,             ///< S4 signal warning
-    WARN_S5 = 0x00800000,             ///< S5 signal warning
-    WARN_CAN = 0x10000000,            ///< CAN communication warning (MCP models only)
-    WARN_BOOT = 0x20000000,           ///< Boot mode warning
-    WARN_OVERREGENM1 = 0x40000000,    ///< Motor 1 over-regeneration warning
-    WARN_OVERREGENM2 = 0x80000000     ///< Motor 2 over-regeneration warning
-  };
+ private:
+  int retry_count_{3};      // Maximum number of times to retry a RoboClaw command.
+  int retry_quiet_ms_{11};  // Quiet time between retries in milliseconds.
 };

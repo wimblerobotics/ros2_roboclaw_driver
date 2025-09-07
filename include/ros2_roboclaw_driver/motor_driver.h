@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (c) 2025 Michael Wimble. https://github.com/wimblerobotics/ros2_roboclaw_driver
+// Copyright (c) 2025 Michael Wimble.
+// https://github.com/wimblerobotics/motor_driver
 #pragma once
 
 #include <atomic>
@@ -14,7 +15,7 @@
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <thread>
 
-#include "roboclaw.h"
+#include "ros2_roboclaw_driver/RoboClaw.h"
 #include "ros2_roboclaw_driver/msg/robo_claw_status.hpp"
 
 class MotorDriver {
@@ -32,12 +33,10 @@ class MotorDriver {
   const RoboClaw::TPIDQ& getCachedM2Pid() const {
     return cached_m2_pid_;
   }
-  rclcpp::Publisher<ros2_roboclaw_driver::msg::RoboClawStatus>::SharedPtr getStatusPublisher()
-      const {
+  rclcpp::Publisher<ros2_roboclaw_driver::msg::RoboClawStatus>::SharedPtr getStatusPublisher() const {
     return status_publisher_;
   }
-  void setStatusPublisher(
-      rclcpp::Publisher<ros2_roboclaw_driver::msg::RoboClawStatus>::SharedPtr pub) {
+  void setStatusPublisher(rclcpp::Publisher<ros2_roboclaw_driver::msg::RoboClawStatus>::SharedPtr pub) {
     status_publisher_ = pub;
   }
 
@@ -53,8 +52,8 @@ class MotorDriver {
   void publisherThread();
   void setupStatsTimer();
   void controlLoopCallback();  // Timer callback for unified high-rate loop
-  void getFreshEncoders(uint32_t& encoder_left_, uint32_t& encoder_right_,
-                        uint8_t& encoder_left_status_, uint8_t& encoder_right_status_);
+  void getFreshEncoders(uint32_t& encoder_left_, uint32_t& encoder_right_, uint8_t& encoder_left_status_,
+                        uint8_t& encoder_right_status_);
 
   // Odometry methods
   void integrateOdometry();
@@ -96,7 +95,7 @@ class MotorDriver {
   float wheel_separation_;
 
   // High-rate loop config
-  int loop_sleep_ms_{20};  // 50Hz control rate
+  int loop_sleep_ms_{10};  // 50Hz control rate
   int odom_rate_hz_{50};
   int joint_state_rate_hz_{50};
   int status_rate_hz_{20};
@@ -140,8 +139,8 @@ class MotorDriver {
 
   // Incremental sensor polling state & cache
   int incremental_sensor_index_{1};  // 1..4 used for non-encoder groups
-  // Status data collection state machine (6 states: encoders, velocities, currents, logic_bat,
-  // main_bat, temp_status)
+  // Status data collection state machine (6 states: encoders, velocities,
+  // currents, logic_bat, main_bat, temp_status)
   enum StatusDataState {
     ENCODERS_SPEED = 0,
     MOTOR_CURRENTS = 1,

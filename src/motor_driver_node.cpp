@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (c) 2025 Michael Wimble. https://github.com/wimblerobotics/ros2_roboclaw_driver
+// Copyright (c) 2025 Michael Wimble.
+// https://github.com/wimblerobotics/ros2_roboclaw_driver
+#include <rcutils/logging_macros.h>
+
 #include <rclcpp/rclcpp.hpp>
 #include <string>
 
-#include "motor_driver.h"
-#include "roboclaw.h"
-#include "ros2_roboclaw_driver/msg/robo_claw_status.hpp"
+#include "ros2_roboclaw_driver/motor_driver.h"
 
 int main(int argc, char* argv[]) {
   rclcpp::init(argc, argv);
-  rclcpp::Node::SharedPtr node = rclcpp::Node::make_shared("ros2_roboclaw_driver_node");
+  rclcpp::Node::SharedPtr node = rclcpp::Node::make_shared("motor_driver_node");
+
   MotorDriver& motorDriver = MotorDriver::singleton();
   motorDriver.onInit(node);
 
@@ -27,6 +29,7 @@ int main(int argc, char* argv[]) {
       node->create_publisher<ros2_roboclaw_driver::msg::RoboClawStatus>(statusTopicName, qos);
 
   motorDriver.setStatusPublisher(statusPublisher);
+
   rclcpp::executors::MultiThreadedExecutor executor;
   executor.add_node(node);
   executor.spin();

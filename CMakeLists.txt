@@ -41,14 +41,16 @@ set(msg_files "msg/RoboClawStatus.msg")
 set(srv_files "srv/ResetEncoders.srv")
 
 rosidl_generate_interfaces(${PROJECT_NAME} ${msg_files} ${srv_files}
-  DEPENDENCIES std_msgs)
+                           DEPENDENCIES std_msgs)
 
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME}
                               "rosidl_typesupport_cpp")
 
 add_executable(
-  ros2_roboclaw_driver_node src/motor_driver_node.cpp src/motor_driver.cpp
-                            src/roboclaw.cpp)
+  ros2_roboclaw_driver_node
+  src/motor_driver_node.cpp
+  src/motor_driver.cpp
+  src/RoboClaw.cpp)
 
 ament_target_dependencies(ros2_roboclaw_driver_node rclcpp geometry_msgs
                           nav_msgs sensor_msgs std_msgs)
@@ -64,6 +66,8 @@ install(TARGETS ros2_roboclaw_driver_node
 install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME}/
 )
+
+install(DIRECTORY include/ DESTINATION include/)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

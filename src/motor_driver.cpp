@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (c) 2025 Michael Wimble. https://github.com/wimblerobotics/ros2_roboclaw_driver
+// Copyright (c) 2025 Michael Wimble.
+// https://github.com/wimblerobotics/ros2_roboclaw_driver
 
-#include "motor_driver.h"
+#include "ros2_roboclaw_driver/motor_driver.h"
 
 #include <math.h>
 #include <rcutils/logging_macros.h>
@@ -17,19 +18,19 @@
 #include <string>
 #include <thread>
 
-#include "roboclaw.h"
-#include "roboclaw_cmd_do_buffered_m1m2_drive_speed_accel_distance.h"
-#include "roboclaw_cmd_read_encoder.h"
-#include "roboclaw_cmd_read_encoder_speed.h"
-#include "roboclaw_cmd_read_logic_battery_voltage.h"
-#include "roboclaw_cmd_read_main_battery_voltage.h"
-#include "roboclaw_cmd_read_motor_currents.h"
-#include "roboclaw_cmd_read_motor_velocity_pidq.h"
-#include "roboclaw_cmd_read_status.h"
-#include "roboclaw_cmd_read_temperature.h"
+#include "ros2_roboclaw_driver/RoboClaw.h"
+#include "ros2_roboclaw_driver/roboclaw_cmd_do_buffered_m1m2_drive_speed_accel_distance.h"
+#include "ros2_roboclaw_driver/roboclaw_cmd_read_encoder.h"
+#include "ros2_roboclaw_driver/roboclaw_cmd_read_encoder_speed.h"
+#include "ros2_roboclaw_driver/roboclaw_cmd_read_logic_battery_voltage.h"
+#include "ros2_roboclaw_driver/roboclaw_cmd_read_main_battery_voltage.h"
+#include "ros2_roboclaw_driver/roboclaw_cmd_read_motor_currents.h"
+#include "ros2_roboclaw_driver/roboclaw_cmd_read_motor_velocity_pidq.h"
+#include "ros2_roboclaw_driver/roboclaw_cmd_read_speed_m1.h"
+#include "ros2_roboclaw_driver/roboclaw_cmd_read_status.h"
+#include "ros2_roboclaw_driver/roboclaw_cmd_read_temperature.h"
 
-MotorDriver::MotorDriver()
-    : device_name_("foo_bar"), wheel_radius_(0.10169), wheel_separation_(0.345) {}
+MotorDriver::MotorDriver() : device_name_("foo_bar"), wheel_radius_(0.10169), wheel_separation_(0.345) {}
 
 void MotorDriver::declareParameters(rclcpp::Node& node) {
   node.declare_parameter<int>("accel_quad_pulses_per_second", 600);
@@ -113,13 +114,11 @@ void MotorDriver::initializeParameters(rclcpp::Node& node) {
 void MotorDriver::validateRequiredParametersOrDie() {
   bool ok = true;
   if (device_name_.empty() || device_name_ == "roboclaw") {
-    RCUTILS_LOG_FATAL("Required parameter 'device_name' not loaded from config (got '%s').",
-                      device_name_.c_str());
+    RCUTILS_LOG_FATAL("Required parameter 'device_name' not loaded from config (got '%s').", device_name_.c_str());
     ok = false;
   }
   if (quad_pulses_per_meter_ <= 0) {
-    RCUTILS_LOG_FATAL("Required parameter 'quad_pulses_per_meter' must be > 0 (got %d).",
-                      quad_pulses_per_meter_);
+    RCUTILS_LOG_FATAL("Required parameter 'quad_pulses_per_meter' must be > 0 (got %d).", quad_pulses_per_meter_);
     ok = false;
   }
   if (wheel_radius_ <= 0.0f) {
@@ -127,8 +126,7 @@ void MotorDriver::validateRequiredParametersOrDie() {
     ok = false;
   }
   if (wheel_separation_ <= 0.0f) {
-    RCUTILS_LOG_FATAL("Required parameter 'wheel_separation' must be > 0 (got %f).",
-                      wheel_separation_);
+    RCUTILS_LOG_FATAL("Required parameter 'wheel_separation' must be > 0 (got %f).", wheel_separation_);
     ok = false;
   }
   if (!ok) {
@@ -181,16 +179,12 @@ void MotorDriver::cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg)
   cached_cmd_vel_.twist = *msg;
   cached_cmd_vel_.stamp = std::chrono::steady_clock::now();
   cached_cmd_vel_.seq++;
-  
-  // Queue the command instead of processing immediately (TeensyV2 approach)
-  std::lock_guard<std::mutex> lock(cmd_queue_mutex_);
-  cmd_queue_.push(*msg);
-  
+
   cached_cmd_vel_.mutex.unlock();
 }
 
 void MotorDriver::processCmdVel() {
-  // cached_cmd_vel_.mutex.lock();
+  cached_cmd_vel_.mutex.lock();
   bool should_send_command = false;
   double latency_ms = 0.0;
 
@@ -202,9 +196,8 @@ void MotorDriver::processCmdVel() {
     }
     last_processed_seq_ = cached_cmd_vel_.seq;
     cmd_processed_count_++;
-    latency_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
-                                                           cached_cmd_vel_.stamp)
-                     .count();
+    latency_ms =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - cached_cmd_vel_.stamp).count();
     if (cmd_latency_ema_ms_ == 0.0)
       cmd_latency_ema_ms_ = latency_ms;
     else
@@ -214,24 +207,26 @@ void MotorDriver::processCmdVel() {
 
   if (should_send_command) {
     const double x_velocity =
-        std::clamp((double)cached_cmd_vel_.twist.linear.x, -(double)max_linear_velocity_,
-                   (double)max_linear_velocity_);
-    const double yaw_velocity =
-        std::clamp((double)cached_cmd_vel_.twist.angular.z, -(double)max_angular_velocity_,
-                   (double)max_angular_velocity_);
-    const double m1_desired_velocity =
-        x_velocity - (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
-    const double m2_desired_velocity =
-        x_velocity + (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
+        std::clamp((double)cached_cmd_vel_.twist.linear.x, -(double)max_linear_velocity_, (double)max_linear_velocity_);
+    const double yaw_velocity = std::clamp((double)cached_cmd_vel_.twist.angular.z, -(double)max_angular_velocity_,
+                                           (double)max_angular_velocity_);
+    const double m1_desired_velocity = x_velocity - (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
+    const double m2_desired_velocity = x_velocity + (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
     const int32_t m1_qpps = (int32_t)(m1_desired_velocity * quad_pulses_per_meter_);
     const int32_t m2_qpps = (int32_t)(m2_desired_velocity * quad_pulses_per_meter_);
     const int32_t m1_max_distance = (int32_t)fabs(m1_qpps * max_seconds_uncommanded_travel_);
     const int32_t m2_max_distance = (int32_t)fabs(m2_qpps * max_seconds_uncommanded_travel_);
     try {
       CmdDoBufferedM1M2DriveSpeedAccelDistance cmd = CmdDoBufferedM1M2DriveSpeedAccelDistance(
-          *roboclaw_, accel_quad_pulses_per_second_, m1_qpps, m1_max_distance, m2_qpps,
-          m2_max_distance);
+          *roboclaw_, accel_quad_pulses_per_second_, m1_qpps, m1_max_distance, m2_qpps, m2_max_distance);
       cmd.execute();
+
+      int32_t speed = 0;
+      CmdReadEncoderSpeed cmd_m1_read_encoder_speed(*roboclaw_, RoboClaw::kM1, speed);
+      cmd_m1_read_encoder_speed.execute();
+      // CmdReadSpeedM1 cmd1(*roboclaw_, speed);
+      // cmd1.execute();
+      RCUTILS_LOG_DEBUG("M1 speed: %d", speed);
     } catch (const std::exception& ex) {
       RCUTILS_LOG_ERROR("Failed to send motor command for cmd_vel: %s", ex.what());
     } catch (...) {
@@ -244,89 +239,17 @@ void MotorDriver::processCmdVel() {
     if (std::chrono::duration<double>(now_metrics - last_cmd_metrics_log_).count() >= 1.0) {
       double processed_rate = cmd_latency_ema_ms_ > 0 ? 1000.0 / cmd_latency_ema_ms_ : 0.0;
       RCUTILS_LOG_INFO(
-          "[cmd_vel proc] last_seq=%llu processed=%llu missed=%llu lat_ema=%.2fms "
+          "[cmd_vel proc] last_seq=%llu processed=%llu missed=%llu "
+          "lat_ema=%.2fms "
           "lat_max=%.2fms est_rate=%.1fHz",
           (unsigned long long)last_processed_seq_, (unsigned long long)cmd_processed_count_,
-          (unsigned long long)cmd_missed_count_, cmd_latency_ema_ms_, cmd_latency_max_ms_,
-          processed_rate);
+          (unsigned long long)cmd_missed_count_, cmd_latency_ema_ms_, cmd_latency_max_ms_, processed_rate);
       cmd_latency_max_ms_ = 0.0;
       last_cmd_metrics_log_ = now_metrics;
     }
   }  // end of if (should_send_command)
 
-  // cached_cmd_vel_.mutex.unlock();
-}
-
-void MotorDriver::processQueuedCommands() {
-  std::lock_guard<std::mutex> lock(cmd_queue_mutex_);
-  
-  if (cmd_queue_.empty()) {
-    return;
-  }
-  
-  // Get the latest command from the queue
-  geometry_msgs::msg::Twist latest_cmd = cmd_queue_.back();
-  
-  // Clear the queue since we only care about the most recent command
-  while (!cmd_queue_.empty()) {
-    cmd_queue_.pop();
-  }
-  
-  // Check if we should send this command (TeensyV2-style filtering)
-  bool should_send = false;
-  auto now = std::chrono::steady_clock::now();
-  
-  // Force update if it's been more than 100ms since last command
-  if (std::chrono::duration<double, std::milli>(now - last_cmd_time_).count() >= 100.0) {
-    should_send = true;
-  } else {
-    // Check for significant velocity changes (>10 QPPS difference)
-    const double x_velocity = std::clamp((double)latest_cmd.linear.x, -(double)max_linear_velocity_,
-                                        (double)max_linear_velocity_);
-    const double yaw_velocity = std::clamp((double)latest_cmd.angular.z, -(double)max_angular_velocity_,
-                                          (double)max_angular_velocity_);
-    const double m1_desired_velocity = x_velocity - (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
-    const double m2_desired_velocity = x_velocity + (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
-    const int32_t m1_qpps = (int32_t)(m1_desired_velocity * quad_pulses_per_meter_);
-    const int32_t m2_qpps = (int32_t)(m2_desired_velocity * quad_pulses_per_meter_);
-    
-    // Check if either motor velocity changed significantly
-    if (abs(m1_qpps - last_m1_qpps_) > 10 || abs(m2_qpps - last_m2_qpps_) > 10) {
-      should_send = true;
-    }
-  }
-  
-  if (should_send) {
-    // Calculate motor commands
-    const double x_velocity = std::clamp((double)latest_cmd.linear.x, -(double)max_linear_velocity_,
-                                        (double)max_linear_velocity_);
-    const double yaw_velocity = std::clamp((double)latest_cmd.angular.z, -(double)max_angular_velocity_,
-                                          (double)max_angular_velocity_);
-    const double m1_desired_velocity = x_velocity - (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
-    const double m2_desired_velocity = x_velocity + (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
-    const int32_t m1_qpps = (int32_t)(m1_desired_velocity * quad_pulses_per_meter_);
-    const int32_t m2_qpps = (int32_t)(m2_desired_velocity * quad_pulses_per_meter_);
-    const int32_t m1_max_distance = (int32_t)fabs(m1_qpps * max_seconds_uncommanded_travel_);
-    const int32_t m2_max_distance = (int32_t)fabs(m2_qpps * max_seconds_uncommanded_travel_);
-    
-    try {
-      CmdDoBufferedM1M2DriveSpeedAccelDistance cmd = CmdDoBufferedM1M2DriveSpeedAccelDistance(
-          *roboclaw_, accel_quad_pulses_per_second_, m1_qpps, m1_max_distance, m2_qpps,
-          m2_max_distance);
-      cmd.execute();
-      
-      // Update tracking variables
-      last_cmd_time_ = now;
-      last_m1_qpps_ = m1_qpps;
-      last_m2_qpps_ = m2_qpps;
-      
-      RCUTILS_LOG_DEBUG("Sent command: M1=%d QPPS, M2=%d QPPS", m1_qpps, m2_qpps);
-    } catch (const std::exception& ex) {
-      RCUTILS_LOG_ERROR("Failed to send queued motor command: %s", ex.what());
-    } catch (...) {
-      RCUTILS_LOG_ERROR("Failed to send queued motor command: unknown exception");
-    }
-  }
+  cached_cmd_vel_.mutex.unlock();
 }
 
 void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
@@ -338,8 +261,8 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
   RoboClaw::TPIDQ m1Pid = {m1_p_, m1_i_, m1_d_, (uint32_t)m1_qpps_, m1_max_current_};
   RoboClaw::TPIDQ m2Pid = {m2_p_, m2_i_, m2_d_, (uint32_t)m2_qpps_, m2_max_current_};
 
-  roboclaw_ = new RoboClaw(m1Pid, m2Pid, m1_max_current_, m2_max_current_, device_name_.c_str(),
-                           device_port_, baud_rate_, do_debug_, do_low_level_debug_);
+  roboclaw_ = new RoboClaw(m1Pid, m2Pid, m1_max_current_, m2_max_current_, device_name_.c_str(), device_port_,
+                           baud_rate_, do_debug_, do_low_level_debug_);
   // Configure retry behavior on RoboClaw singleton
   if (roboclaw_) {
     roboclaw_->setRetryParams(retry_count_, retry_quiet_ms_);
@@ -365,8 +288,7 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
       "/cmd_vel", qos, std::bind(&MotorDriver::cmdVelCallback, this, std::placeholders::_1));
 
   if (publish_joint_states_) {
-    joint_state_publisher_ =
-        node_->create_publisher<sensor_msgs::msg::JointState>("joint_states", qos);
+    joint_state_publisher_ = node_->create_publisher<sensor_msgs::msg::JointState>("joint_states", qos);
   }
 
   if (publish_odom_) {
@@ -375,8 +297,7 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
 
   // Start unified control loop timer (publishes and drives motors)
   auto timer_period = std::chrono::milliseconds(loop_sleep_ms_);
-  control_timer_ =
-      node_->create_wall_timer(timer_period, std::bind(&MotorDriver::controlLoopCallback, this));
+  control_timer_ = node_->create_wall_timer(timer_period, std::bind(&MotorDriver::controlLoopCallback, this));
   // setupStatsTimer(); //###
 }
 
@@ -392,8 +313,8 @@ MotorDriver& MotorDriver::singleton() {
 
 MotorDriver* MotorDriver::g_singleton = nullptr;
 
-void MotorDriver::getFreshEncoders(uint32_t& encoder_left_, uint32_t& encoder_right_,
-                                   uint8_t& encoder_left_status_, uint8_t& encoder_right_status_) {
+void MotorDriver::getFreshEncoders(uint32_t& encoder_left_, uint32_t& encoder_right_, uint8_t& encoder_left_status_,
+                                   uint8_t& encoder_right_status_) {
   RoboClaw::EncodeResult encoder_result;
   static uint64_t last_loop_count = 0;
   static uint32_t cached_encoder_left = 0;
@@ -426,10 +347,11 @@ void MotorDriver::getFreshEncoders(uint32_t& encoder_left_, uint32_t& encoder_ri
 
 void MotorDriver::controlLoopCallback() {
   auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
-  
+
   // Process queued commands with TeensyV2-style filtering (highest priority)
-  processQueuedCommands();
-  
+  // processQueuedCommands();
+  processCmdVel();
+
   // Publish timing trackers
   static auto last_odom_pub = std::chrono::steady_clock::now();
   static auto last_joint_pub = std::chrono::steady_clock::now();
@@ -461,183 +383,181 @@ void MotorDriver::controlLoopCallback() {
     // processCmdVel();
     auto now_tp = std::chrono::steady_clock::now();
 
-    // State machine for status data collection (spread over status publish period)
+    // State machine for status data collection (spread over status publish
+    // period)
     if (!last_status_data_collection_.time_since_epoch().count()) {
       last_status_data_collection_ = now_tp;
     }
 
-    // if (std::chrono::duration<double>(now_tp - last_status_data_collection_).count() * 1000.0 >=
-    //     status_data_interval_ms_) {
-    //   try {
-    //     switch (status_data_state_) {
-    //       case ENCODERS_SPEED: {
-    //         CmdReadEncoderSpeed cmd1 = CmdReadEncoderSpeed(*rc, RoboClaw::kM1, velocity_left_);
-    //         cmd1.execute();
-    //         CmdReadEncoderSpeed cmd2 = CmdReadEncoderSpeed(*rc, RoboClaw::kM2, velocity_right_);
-    //         cmd2.execute();
-    //         break;
-    //       }
-    //       case MOTOR_CURRENTS: {
-    //         RoboClaw::TMotorCurrents motor_currents;
-    //         CmdReadMotorCurrents cmd = CmdReadMotorCurrents(*rc, motor_currents);
-    //         cmd.execute();
-    //         motor_currents_.m1Current = motor_currents.m1Current;
-    //         motor_currents_.m2Current = motor_currents.m2Current;
-    //         break;
-    //       }
-    //       case LOGIC_BATTERY: {
-    //         CmdReadLogicBatteryVoltage cmd_logic = CmdReadLogicBatteryVoltage(*rc,
-    //         logic_voltage_); cmd_logic.execute(); break;
-    //       }
-    //       case MAIN_BATTERY: {
-    //         CmdReadMainBatteryVoltage cmd_main = CmdReadMainBatteryVoltage(*rc, main_voltage_);
-    //         cmd_main.execute();
-    //         break;
-    //       }
-    //       case TEMPERATURE: {
-    //         CmdReadTemperature cmd_temp = CmdReadTemperature(*rc, temperature_);
-    //         cmd_temp.execute();
-    //         break;
-    //       }
-    //       case STATUS_BITS: {
-    //         CmdReadStatus cmd_status = CmdReadStatus(*rc, status_bits_);
-    //         cmd_status.execute();
-    //         break;
-    //       }
-    //     }
-    //     // Advance to next state
-    //     status_data_state_ = static_cast<StatusDataState>((status_data_state_ + 1) % 6);
-    //     last_status_data_collection_ = now_tp;
-    //   } catch (...) {
-    //     // If command fails, still advance state to prevent getting stuck
-    //     status_data_state_ = static_cast<StatusDataState>((status_data_state_ + 1) % 6);
-    //   }
-    // }
+    if (std::chrono::duration<double>(now_tp - last_status_data_collection_).count() * 1000.0 >=
+        status_data_interval_ms_) {
+      try {
+        switch (status_data_state_) {
+          case ENCODERS_SPEED: {
+            CmdReadEncoderSpeed cmd1 = CmdReadEncoderSpeed(*rc, RoboClaw::kM1, velocity_left_);
+            cmd1.execute();
+            CmdReadEncoderSpeed cmd2 = CmdReadEncoderSpeed(*rc, RoboClaw::kM2, velocity_right_);
+            cmd2.execute();
+            break;
+          }
+          case MOTOR_CURRENTS: {
+            RoboClaw::TMotorCurrents motor_currents;
+            CmdReadMotorCurrents cmd = CmdReadMotorCurrents(*rc, motor_currents);
+            cmd.execute();
+            motor_currents_.m1Current = motor_currents.m1Current;
+            motor_currents_.m2Current = motor_currents.m2Current;
+            break;
+          }
+          case LOGIC_BATTERY: {
+            CmdReadLogicBatteryVoltage cmd_logic = CmdReadLogicBatteryVoltage(*rc, logic_voltage_);
+            cmd_logic.execute();
+            break;
+          }
+          case MAIN_BATTERY: {
+            CmdReadMainBatteryVoltage cmd_main = CmdReadMainBatteryVoltage(*rc, main_voltage_);
+            cmd_main.execute();
+            break;
+          }
+          case TEMPERATURE: {
+            CmdReadTemperature cmd_temp = CmdReadTemperature(*rc, temperature_);
+            cmd_temp.execute();
+            break;
+          }
+          case STATUS_BITS: {
+            CmdReadStatus cmd_status = CmdReadStatus(*rc, status_bits_);
+            cmd_status.execute();
+            break;
+          }
+        }
+        // Advance to next state
+        status_data_state_ = static_cast<StatusDataState>((status_data_state_ + 1) % 6);
+        last_status_data_collection_ = now_tp;
+      } catch (...) {
+        // If command fails, still advance state to prevent getting stuck
+        status_data_state_ = static_cast<StatusDataState>((status_data_state_ + 1) % 6);
+      }
+    }
 
     // Joint states publish
-    // if (publish_joint_states_ && joint_state_publisher_ &&
-    //     (std::chrono::duration<double>(now_tp - last_joint_pub).count() >=
-    //      1.0 / std::max(1, joint_state_rate_hz_))) {
-    //   RCUTILS_LOG_INFO("Publishing joint states");
-    //   getFreshEncoders(encoder_left_, encoder_right_, encoder_left_status_,
-    //   encoder_right_status_); sensor_msgs::msg::JointState js; js.header.stamp = clock->now();
-    //   js.name = {"front_left_wheel", "front_right_wheel"};
-    //   double radians_left =
-    //       fmod((encoder_left_ / quad_pulses_per_revolution_) * 2.0 * M_PI, 2.0 * M_PI);
-    //   double radians_right =
-    //       fmod((encoder_right_ / quad_pulses_per_revolution_) * 2.0 * M_PI, 2.0 * M_PI);
-    //   double velocity_left_rad_s = velocity_left_ / wheel_radius_;
-    //   double velocity_right_rad_s = velocity_right_ / wheel_radius_;
-    //   js.position = {radians_left, radians_right};
-    //   js.velocity = {velocity_left_rad_s, velocity_right_rad_s};
-    //   joint_state_publisher_->publish(js);
-    //   last_joint_pub = now_tp;
-    // }
+    if (publish_joint_states_ && joint_state_publisher_ &&
+        (std::chrono::duration<double>(now_tp - last_joint_pub).count() >= 1.0 / std::max(1, joint_state_rate_hz_))) {
+      getFreshEncoders(encoder_left_, encoder_right_, encoder_left_status_, encoder_right_status_);
+      sensor_msgs::msg::JointState js;
+      js.header.stamp = clock->now();
+      js.name = {"front_left_wheel", "front_right_wheel"};
+      double radians_left = fmod((encoder_left_ / quad_pulses_per_revolution_) * 2.0 * M_PI, 2.0 * M_PI);
+      double radians_right = fmod((encoder_right_ / quad_pulses_per_revolution_) * 2.0 * M_PI, 2.0 * M_PI);
+      double velocity_left_rad_s = velocity_left_ / wheel_radius_;
+      double velocity_right_rad_s = velocity_right_ / wheel_radius_;
+      js.position = {radians_left, radians_right};
+      js.velocity = {velocity_left_rad_s, velocity_right_rad_s};
+      joint_state_publisher_->publish(js);
+      last_joint_pub = now_tp;
+    }
 
-    // // Odometry publish
-    // if (publish_odom_ && odom_publisher_ &&
-    //     (std::chrono::duration<double>(now_tp - last_odom_pub).count() >=
-    //      1.0 / std::max(1, odom_rate_hz_))) {
-    //   RCUTILS_LOG_INFO("Publishing odometry");
-    //   getFreshEncoders(encoder_left_, encoder_right_, encoder_left_status_,
-    //   encoder_right_status_); if (!encoders_initialized) {
-    //     last_left_encoder = encoder_left_;
-    //     last_right_encoder = encoder_right_;
-    //     encoders_initialized = true;
-    //   }
-    //   int32_t current_left_encoder = encoder_left_;
-    //   int32_t current_right_encoder = encoder_right_;
-    //   int32_t delta_encoder_m1 = current_left_encoder - last_left_encoder;
-    //   int32_t delta_encoder_m2 = current_right_encoder - last_right_encoder;
-    //   last_left_encoder = current_left_encoder;
-    //   last_right_encoder = current_right_encoder;
-    //   float wheel_circumference = (float)M_PI * wheel_radius_ * 2.0f;
-    //   float dist_m1 = (delta_encoder_m1 / quad_pulses_per_revolution_) * wheel_circumference;
-    //   float dist_m2 = (delta_encoder_m2 / quad_pulses_per_revolution_) * wheel_circumference;
-    //   float delta_distance = (dist_m1 + dist_m2) / 2.0f;
-    //   float delta_theta = (dist_m2 - dist_m1) / wheel_separation_;
-    //   current_pose.x += delta_distance * cos(current_pose.theta + delta_theta / 2.0f);
-    //   current_pose.y += delta_distance * sin(current_pose.theta + delta_theta / 2.0f);
-    //   current_pose.theta += delta_theta;
-    //   while (current_pose.theta > M_PI)
-    //     current_pose.theta -= 2.0f * M_PI;
-    //   while (current_pose.theta < -M_PI)
-    //     current_pose.theta += 2.0f * M_PI;
-    //   current_velocity.linear_x = delta_distance * std::max(1, odom_rate_hz_);  // approx
-    //   current_velocity.angular_z = delta_theta * std::max(1, odom_rate_hz_);
-    //   nav_msgs::msg::Odometry odom;
-    //   odom.header.stamp = clock->now();
-    //   odom.header.frame_id = "base_link";
-    //   float half_theta = current_pose.theta / 2.0f;
-    //   float q[4];
-    //   q[0] = cos(half_theta);
-    //   q[1] = 0;
-    //   q[2] = 0;
-    //   q[3] = sin(half_theta);
-    //   odom.pose.pose.position.x = current_pose.x;
-    //   odom.pose.pose.position.y = current_pose.y;
-    //   odom.pose.pose.position.z = 0;
-    //   odom.pose.pose.orientation.x = q[1];
-    //   odom.pose.pose.orientation.y = q[2];
-    //   odom.pose.pose.orientation.z = q[3];
-    //   odom.pose.pose.orientation.w = q[0];
-    //   odom.twist.twist.linear.x = current_velocity.linear_x;
-    //   odom.twist.twist.angular.z = current_velocity.angular_z;
-    //   odom_publisher_->publish(odom);
-    //   last_odom_pub = now_tp;
-    // }
+    // Odometry publish
+    if (publish_odom_ && odom_publisher_ &&
+        (std::chrono::duration<double>(now_tp - last_odom_pub).count() >= 1.0 / std::max(1, odom_rate_hz_))) {
+      getFreshEncoders(encoder_left_, encoder_right_, encoder_left_status_, encoder_right_status_);
+      if (!encoders_initialized) {
+        last_left_encoder = encoder_left_;
+        last_right_encoder = encoder_right_;
+        encoders_initialized = true;
+      }
+      int32_t current_left_encoder = encoder_left_;
+      int32_t current_right_encoder = encoder_right_;
+      int32_t delta_encoder_m1 = current_left_encoder - last_left_encoder;
+      int32_t delta_encoder_m2 = current_right_encoder - last_right_encoder;
+      last_left_encoder = current_left_encoder;
+      last_right_encoder = current_right_encoder;
+      float wheel_circumference = (float)M_PI * wheel_radius_ * 2.0f;
+      float dist_m1 = (delta_encoder_m1 / quad_pulses_per_revolution_) * wheel_circumference;
+      float dist_m2 = (delta_encoder_m2 / quad_pulses_per_revolution_) * wheel_circumference;
+      float delta_distance = (dist_m1 + dist_m2) / 2.0f;
+      float delta_theta = (dist_m2 - dist_m1) / wheel_separation_;
+      current_pose.x += delta_distance * cos(current_pose.theta + delta_theta / 2.0f);
+      current_pose.y += delta_distance * sin(current_pose.theta + delta_theta / 2.0f);
+      current_pose.theta += delta_theta;
+      while (current_pose.theta > M_PI)
+        current_pose.theta -= 2.0f * M_PI;
+      while (current_pose.theta < -M_PI)
+        current_pose.theta += 2.0f * M_PI;
+      current_velocity.linear_x = delta_distance * std::max(1,
+                                                            odom_rate_hz_);  // approx current_velocity.angular_z =
+                                                                             // delta_theta *
+      std::max(1, odom_rate_hz_);
+      nav_msgs::msg::Odometry odom;
+      odom.header.stamp = clock->now();
+      odom.header.frame_id = "base_link";
+      float half_theta = current_pose.theta / 2.0f;
+      float q[4];
+      q[0] = cos(half_theta);
+      q[1] = 0;
+      q[2] = 0;
+      q[3] = sin(half_theta);
+      odom.pose.pose.position.x = current_pose.x;
+      odom.pose.pose.position.y = current_pose.y;
+      odom.pose.pose.position.z = 0;
+      odom.pose.pose.orientation.x = q[1];
+      odom.pose.pose.orientation.y = q[2];
+      odom.pose.pose.orientation.z = q[3];
+      odom.pose.pose.orientation.w = q[0];
+      odom.twist.twist.linear.x = current_velocity.linear_x;
+      odom.twist.twist.angular.z = current_velocity.angular_z;
+      odom_publisher_->publish(odom);
+      last_odom_pub = now_tp;
+    }
 
     // Status publish (now integrated in control loop)
-    // if (status_publisher_ && (std::chrono::duration<double>(now_tp - last_status_pub).count() >=
-    //                           1.0 / std::max(1, status_rate_hz_))) {
-    //   // Ensure we have fresh encoder data for status message
-    //   // (Get fresh data if neither joint states nor odom published in this cycle)
-    //   bool joint_states_published =
-    //       publish_joint_states_ && joint_state_publisher_ &&
-    //       (std::chrono::duration<double>(now_tp - last_joint_pub).count() >=
-    //        1.0 / std::max(1, joint_state_rate_hz_));
-    //   bool odom_published = publish_odom_ && odom_publisher_ &&
-    //                         (std::chrono::duration<double>(now_tp - last_odom_pub).count() >=
-    //                          1.0 / std::max(1, odom_rate_hz_));
+    if (status_publisher_ &&
+        (std::chrono::duration<double>(now_tp - last_status_pub).count() >= 1.0 / std::max(1, status_rate_hz_))) {
+      // Ensure we have fresh encoder data for status message
+      // (Get fresh data if neither joint states nor odom published in this
+      // cycle)
+      bool joint_states_published =
+          publish_joint_states_ && joint_state_publisher_ &&
+          (std::chrono::duration<double>(now_tp - last_joint_pub).count() >= 1.0 / std::max(1, joint_state_rate_hz_));
+      bool odom_published =
+          publish_odom_ && odom_publisher_ &&
+          (std::chrono::duration<double>(now_tp - last_odom_pub).count() >= 1.0 / std::max(1, odom_rate_hz_));
 
-    //   if (!joint_states_published && !odom_published) {
-    //     RCUTILS_LOG_INFO("Publishing roboclaw status with fresh encoders");
-    //     getFreshEncoders(encoder_left_, encoder_right_, encoder_left_status_,
-    //                      encoder_right_status_);
-    //   }
-    //   ros2_roboclaw_driver::msg::RoboClawStatus msg;
-    //   msg.header.stamp = clock->now();
-    //   const auto& m1 = cached_m1_pid_;
-    //   const auto& m2 = cached_m2_pid_;
-    //   msg.m1_p = m1.p;
-    //   msg.m1_i = m1.i;
-    //   msg.m1_d = m1.d;
-    //   msg.m1_qpps = m1.qpps;
-    //   msg.m2_p = m2.p;
-    //   msg.m2_i = m2.i;
-    //   msg.m2_d = m2.d;
-    //   msg.m2_qpps = m2.qpps;
-    //   try {
-    //     msg.m1_current_speed = velocity_left_;
-    //     msg.m2_current_speed = velocity_right_;
-    //     msg.m1_motor_current = motor_currents_.m1Current;
-    //     msg.m2_motor_current = motor_currents_.m2Current;
-    //     msg.m1_encoder_value = encoder_left_;
-    //     msg.m1_encoder_status = encoder_left_status_;
-    //     msg.m2_encoder_value = encoder_right_;
-    //     msg.m2_encoder_status = encoder_right_status_;
-    //     msg.main_battery_voltage = main_voltage_;
-    //     msg.logic_battery_voltage = logic_voltage_;
-    //     msg.temperature = temperature_;
-    //     msg.error_status = status_bits_;
-    //     char error_buffer[256];
-    //     rc->decodeErrorStatus(status_bits_, error_buffer, sizeof(error_buffer));
-    //     msg.error_string = error_buffer;
-    //     status_publisher_->publish(msg);
-    //   } catch (...) {
-    //   }
-    //   last_status_pub = now_tp;
-    // }
+      if (!joint_states_published && !odom_published) {
+        getFreshEncoders(encoder_left_, encoder_right_, encoder_left_status_, encoder_right_status_);
+      }
+
+      ros2_roboclaw_driver::msg::RoboClawStatus msg;
+      msg.header.stamp = clock->now();
+      const auto& m1 = cached_m1_pid_;
+      const auto& m2 = cached_m2_pid_;
+      msg.m1_p = m1.p;
+      msg.m1_i = m1.i;
+      msg.m1_d = m1.d;
+      msg.m1_qpps = m1.qpps;
+      msg.m2_p = m2.p;
+      msg.m2_i = m2.i;
+      msg.m2_d = m2.d;
+      msg.m2_qpps = m2.qpps;
+      try {
+        msg.m1_current_speed = velocity_left_;
+        msg.m2_current_speed = velocity_right_;
+        msg.m1_motor_current = motor_currents_.m1Current;
+        msg.m2_motor_current = motor_currents_.m2Current;
+        msg.m1_encoder_value = encoder_left_;
+        msg.m1_encoder_status = encoder_left_status_;
+        msg.m2_encoder_value = encoder_right_;
+        msg.m2_encoder_status = encoder_right_status_;
+        msg.main_battery_voltage = main_voltage_;
+        msg.logic_battery_voltage = logic_voltage_;
+        msg.temperature = temperature_;
+        msg.error_status = status_bits_;
+        char error_buffer[256];
+        rc->decodeErrorStatus(status_bits_, error_buffer, sizeof(error_buffer));
+        msg.error_string = error_buffer;
+        status_publisher_->publish(msg);
+      } catch (...) {
+      }
+      last_status_pub = now_tp;
+    }
   }
 
   // Loop frequency diagnostics (log ~1Hz)
@@ -647,8 +567,7 @@ void MotorDriver::controlLoopCallback() {
     last_loop_freq_log_ = now_loop;
   if (std::chrono::duration<double>(now_loop - last_loop_freq_log_).count() >= 1.0) {
     double hz =
-        loop_iteration_count_ /
-        std::max(1.0, std::chrono::duration<double>(now_loop - last_loop_freq_log_).count());
+        loop_iteration_count_ / std::max(1.0, std::chrono::duration<double>(now_loop - last_loop_freq_log_).count());
     RCUTILS_LOG_INFO("[control_loop] freq=%.1f Hz", hz);
     loop_iteration_count_ = 0;
     last_loop_freq_log_ = now_loop;

@@ -2,7 +2,7 @@
 
 #include <termios.h>
 
-#include "roboclaw.h"
+#include "RoboClaw.h"
 
 class Cmd {
  public:
