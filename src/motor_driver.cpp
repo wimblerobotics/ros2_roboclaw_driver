@@ -464,46 +464,73 @@ void MotorDriver::controlLoopCallback() {
         last_right_encoder = encoder_right_;
         encoders_initialized = true;
       }
-      int32_t current_left_encoder = encoder_left_;
-      int32_t current_right_encoder = encoder_right_;
-      int32_t delta_encoder_m1 = current_left_encoder - last_left_encoder;
-      int32_t delta_encoder_m2 = current_right_encoder - last_right_encoder;
-      last_left_encoder = current_left_encoder;
-      last_right_encoder = current_right_encoder;
-      float wheel_circumference = (float)M_PI * wheel_radius_ * 2.0f;
-      float dist_m1 = (delta_encoder_m1 / quad_pulses_per_revolution_) * wheel_circumference;
-      float dist_m2 = (delta_encoder_m2 / quad_pulses_per_revolution_) * wheel_circumference;
-      float delta_distance = (dist_m1 + dist_m2) / 2.0f;
-      float delta_theta = (dist_m2 - dist_m1) / wheel_separation_;
-      current_pose.x += delta_distance * cos(current_pose.theta + delta_theta / 2.0f);
-      current_pose.y += delta_distance * sin(current_pose.theta + delta_theta / 2.0f);
+
+      // Calculate encoder deltas
+      int32_t delta_left = encoder_left_ - last_left_encoder;
+      int32_t delta_right = encoder_right_ - last_right_encoder;
+      last_left_encoder = encoder_left_;
+      last_right_encoder = encoder_right_;
+
+      // Convert encoder counts to distances (simplified calculation)
+      double meters_per_pulse = (2.0 * M_PI * wheel_radius_) / quad_pulses_per_revolution_;
+      double dist_left = delta_left * meters_per_pulse;
+      double dist_right = delta_right * meters_per_pulse;
+
+      // Calculate pose changes
+      double delta_distance = (dist_left + dist_right) / 2.0;
+      double delta_theta = (dist_right - dist_left) / wheel_separation_;
+
+      // Update pose using proper differential drive kinematics
+      current_pose.x += delta_distance * cos(current_pose.theta + delta_theta / 2.0);
+      current_pose.y += delta_distance * sin(current_pose.theta + delta_theta / 2.0);
       current_pose.theta += delta_theta;
+
+      // Normalize angle to [-pi, pi]
       while (current_pose.theta > M_PI)
-        current_pose.theta -= 2.0f * M_PI;
+        current_pose.theta -= 2.0 * M_PI;
       while (current_pose.theta < -M_PI)
-        current_pose.theta += 2.0f * M_PI;
-      current_velocity.linear_x = delta_distance * std::max(1,
-                                                            odom_rate_hz_);  // approx current_velocity.angular_z =
-                                                                             // delta_theta *
-      std::max(1, odom_rate_hz_);
+        current_pose.theta += 2.0 * M_PI;
+
+      // Calculate velocities (distance/time)
+      double dt = 1.0 / std::max(1, odom_rate_hz_);
+      current_velocity.linear_x = delta_distance / dt;
+      current_velocity.angular_z = delta_theta / dt;
+
+      // Create and populate odometry message
       nav_msgs::msg::Odometry odom;
       odom.header.stamp = clock->now();
-      odom.header.frame_id = "base_link";
-      float half_theta = current_pose.theta / 2.0f;
-      float q[4];
-      q[0] = cos(half_theta);
-      q[1] = 0;
-      q[2] = 0;
-      q[3] = sin(half_theta);
+      odom.header.frame_id = "odom";
+      odom.child_frame_id = "base_link";
+
+      // Position
       odom.pose.pose.position.x = current_pose.x;
       odom.pose.pose.position.y = current_pose.y;
-      odom.pose.pose.position.z = 0;
-      odom.pose.pose.orientation.x = q[1];
-      odom.pose.pose.orientation.y = q[2];
-      odom.pose.pose.orientation.z = q[3];
-      odom.pose.pose.orientation.w = q[0];
+      odom.pose.pose.position.z = 0.0;
+
+      // Orientation (quaternion from yaw)
+      double half_yaw = current_pose.theta / 2.0;
+      odom.pose.pose.orientation.x = 0.0;
+      odom.pose.pose.orientation.y = 0.0;
+      odom.pose.pose.orientation.z = sin(half_yaw);
+      odom.pose.pose.orientation.w = cos(half_yaw);
+
+      // Velocity
       odom.twist.twist.linear.x = current_velocity.linear_x;
+      odom.twist.twist.linear.y = 0.0;
+      odom.twist.twist.linear.z = 0.0;
+      odom.twist.twist.angular.x = 0.0;
+      odom.twist.twist.angular.y = 0.0;
       odom.twist.twist.angular.z = current_velocity.angular_z;
+
+      // Set covariance (optional - use identity for now)
+      std::fill(odom.pose.covariance.begin(), odom.pose.covariance.end(), 0.0);
+      std::fill(odom.twist.covariance.begin(), odom.twist.covariance.end(), 0.0);
+      odom.pose.covariance[0] = 0.1;    // x
+      odom.pose.covariance[7] = 0.1;    // y
+      odom.pose.covariance[35] = 0.1;   // yaw
+      odom.twist.covariance[0] = 0.1;   // vx
+      odom.twist.covariance[35] = 0.1;  // vyaw
+
       odom_publisher_->publish(odom);
       last_odom_pub = now_tp;
     }
