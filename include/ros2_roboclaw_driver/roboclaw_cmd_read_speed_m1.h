@@ -1,11 +1,14 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 Wimblerobotics
+// https://github.com/wimblerobotics/ros2_roboclaw_driver
+
 #pragma once
 
 #include "roboclaw_cmd.h"
 
 class CmdReadSpeedM1 : public Cmd {
  public:
-  CmdReadSpeedM1(RoboClaw& roboclaw, int32_t& speed)
-      : Cmd(roboclaw, "CmdReadSpeedM1", RoboClaw::kM1), speed_(speed) {}
+  CmdReadSpeedM1(RoboClaw& roboclaw, int32_t& speed) : Cmd(roboclaw, "CmdReadSpeedM1", RoboClaw::kM1), speed_(speed) {}
 
  private:
   void send() override {
@@ -15,8 +18,7 @@ class CmdReadSpeedM1 : public Cmd {
       roboclaw_.updateCrc(crc, RoboClaw::GETM1ISPEED);
 
       roboclaw_.appendToWriteLog("CmdReadSpeedM1: WROTE: ");
-      roboclaw_.writeN2(false, 2, roboclaw_.portAddress_,
-                        RoboClaw::GETM1ISPEED);
+      roboclaw_.writeN2(false, 2, roboclaw_.portAddress_, RoboClaw::GETM1ISPEED);
       int32_t result = (int32_t)roboclaw_.getULongCont2(crc);
       uint8_t direction = roboclaw_.readByteWithTimeout2();
       roboclaw_.updateCrc(crc, direction);

@@ -1,19 +1,17 @@
 /**
  * @file motor_driver.h
- * @brief ROS2 motor driver for RoboClaw motor controllers implementing TeensyV2-style command filtering
- * 
+ * @brief ROS2 motor driver for RoboClaw motor controllers
+ *
  * This file defines the MotorDriver class which provides a ROS2 interface to RoboClaw motor controllers.
- * The driver implements TeensyV2-style command filtering to prevent jerky motion by:
- * - Only sending commands when speed difference exceeds 10 QPPS threshold
- * - Forcing updates every 100ms even if no significant change
- * - Using a unified control loop for smooth motor control and sensor data collection
- * 
+ * The driver processes cmd_vel commands and sends them directly to the RoboClaw without filtering.
+ *
  * Key features:
  * - Differential drive kinematics with proper odometry calculation
  * - Status monitoring with error detection and reporting
  * - Configurable PID control for precise motor control
  * - Joint state and odometry publishing for navigation stack integration
- * 
+ * - Unified control loop for motor control and sensor data collection
+ *
  * @author Michael Wimble
  * @copyright Apache-2.0 License
  * @version 2.0
@@ -36,16 +34,16 @@
 
 /**
  * @class MotorDriver
- * @brief Main motor driver class implementing TeensyV2-style command filtering for smooth RoboClaw control
+ * @brief Main motor driver class for RoboClaw motor controllers
  *
  * This singleton class manages communication with RoboClaw motor controllers, providing:
- * - Smooth motor control with TeensyV2-style filtering to prevent jerky movements
+ * - Direct cmd_vel command processing without filtering
  * - Odometry calculation using differential drive kinematics
  * - Status monitoring and error reporting
  * - Integration with ROS2 navigation stack via joint states and odometry
  *
  * The driver uses a unified control loop running at 50Hz that handles:
- * - Command processing and filtering
+ * - Command processing (sends all received cmd_vel messages)
  * - Encoder reading and odometry integration
  * - Status data collection in round-robin fashion
  * - Publishing of joint states, odometry, and status messages
@@ -56,7 +54,7 @@ class MotorDriver {
    * @brief Constructor - initializes default wheel parameters
    */
   MotorDriver();
-  
+
   /**
    * @brief Get singleton instance of motor driver
    * @return Reference to the singleton MotorDriver instance
@@ -68,7 +66,7 @@ class MotorDriver {
    * @param node Shared pointer to ROS2 node for parameter access and topic setup
    */
   void onInit(rclcpp::Node::SharedPtr node);
-  
+
   /**
    * @brief Get current encoder values for status reporting
    * @return Pair of encoder values (left, right) in quadrature pulses
@@ -97,7 +95,6 @@ class MotorDriver {
   void logParameters() const;
   void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
   void processCmdVel();
-  void processQueuedCommands();  // TeensyV2-style command processing
   void publisherThread();
   void setupStatsTimer();
   void controlLoopCallback();  // Timer callback for unified high-rate loop
@@ -170,10 +167,6 @@ class MotorDriver {
   RoboClaw::TPIDQ cached_m1_pid_{};
   RoboClaw::TPIDQ cached_m2_pid_{};
 
-  // Variables for TeensyV2-style command filtering
-  int32_t last_m1_qpps_{0};
-  int32_t last_m2_qpps_{0};
-  std::chrono::steady_clock::time_point last_cmd_time_;
   // Control loop iteration tracking
   uint64_t loop_iteration_count_{0};
   std::chrono::steady_clock::time_point last_loop_freq_log_{};

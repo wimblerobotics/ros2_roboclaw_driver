@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright (c) 2025 Michael Wimble.
+// Copyright 2025 Wimblerobotics
 // https://github.com/wimblerobotics/ros2_roboclaw_driver
+
 #include <rcutils/logging_macros.h>
 
 #include <rclcpp/rclcpp.hpp>

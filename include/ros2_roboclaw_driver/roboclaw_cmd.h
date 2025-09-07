@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 Wimblerobotics
+// https://github.com/wimblerobotics/ros2_roboclaw_driver
+
 #pragma once
 
 #include <termios.h>
@@ -23,8 +27,7 @@ class Cmd {
         return;
       } catch (RoboClaw::TRoboClawException* e) {
         roboclaw_.debug_log_.showLog();
-        RCUTILS_LOG_ERROR("[RoboClaw::Cmd::execute] Exception: %s, attempt: %d", e->what(),
-                          attempt);
+        RCUTILS_LOG_ERROR("[RoboClaw::Cmd::execute] Exception: %s, attempt: %d", e->what(), attempt);
       } catch (...) {
         roboclaw_.debug_log_.showLog();
         RCUTILS_LOG_ERROR("[RoboClaw::Cmd::execute] Uncaught exception !!! attempt: %d", attempt);
@@ -42,8 +45,7 @@ class Cmd {
   }
 
  protected:
-  Cmd(RoboClaw& roboclaw, const char* name, const RoboClaw::kMotor motor)
-      : motor_(motor), roboclaw_(roboclaw) {
+  Cmd(RoboClaw& roboclaw, const char* name, const RoboClaw::kMotor motor) : motor_(motor), roboclaw_(roboclaw) {
     strncpy(name_, name, sizeof(name_));
     name_[sizeof(name_) - 1] = '\0';  // Ensure null-termination
   }

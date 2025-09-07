@@ -1,11 +1,14 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 Wimblerobotics
+// https://github.com/wimblerobotics/ros2_roboclaw_driver
+
 #pragma once
 
 #include "roboclaw_cmd.h"
 
 class CmdReadStatus : public Cmd {
  public:
-  CmdReadStatus(RoboClaw& roboclaw, uint32_t& status)
-      : Cmd(roboclaw, "ReadStatus", RoboClaw::kNone), status_(status) {}
+  CmdReadStatus(RoboClaw& roboclaw, uint32_t& status) : Cmd(roboclaw, "ReadStatus", RoboClaw::kNone), status_(status) {}
 
  private:
   void send() override {
@@ -27,8 +30,7 @@ class CmdReadStatus : public Cmd {
         roboclaw_.appendToReadLog(", RESULT: %08X", static_cast<unsigned int>(status_));
         return;
       } else {
-        RCUTILS_LOG_ERROR("[RoboClaw::CmdReadStatus] invalid CRC expected: 0x%04X, got: 0x%04X",
-                          crc, responseCrc);
+        RCUTILS_LOG_ERROR("[RoboClaw::CmdReadStatus] invalid CRC expected: 0x%04X, got: 0x%04X", crc, responseCrc);
       }
     } catch (...) {
       RCUTILS_LOG_ERROR("[RoboClaw::CmdReadStatus] Uncaught exception !!!");

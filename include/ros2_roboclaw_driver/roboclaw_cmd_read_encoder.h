@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 Wimblerobotics
+// https://github.com/wimblerobotics/ros2_roboclaw_driver
+
 #pragma once
 
 #include "roboclaw_cmd.h"
@@ -17,8 +21,7 @@ class CmdReadEncoder : public Cmd {
       roboclaw_.updateCrc(crc, roboclaw_.portAddress_);
       roboclaw_.updateCrc(crc, motor_ == RoboClaw::kM1 ? kGETM1ENC : kGETM2ENC);
 
-      roboclaw_.writeN2(false, 2, roboclaw_.portAddress_,
-                        motor_ == RoboClaw::kM1 ? kGETM1ENC : kGETM2ENC);
+      roboclaw_.writeN2(false, 2, roboclaw_.portAddress_, motor_ == RoboClaw::kM1 ? kGETM1ENC : kGETM2ENC);
 
       encoder_.value = 0;
       encoder_.status = 0;

@@ -1,24 +1,25 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 Wimblerobotics
+// https://github.com/wimblerobotics/ros2_roboclaw_driver
+
 #pragma once
 
 #include "roboclaw_cmd.h"
 
 class CmdReadMotorVelocityPIDQ : public Cmd {
  public:
-  CmdReadMotorVelocityPIDQ(RoboClaw &roboclaw, RoboClaw::kMotor motor,
-                           RoboClaw::TPIDQ &pidq)
+  CmdReadMotorVelocityPIDQ(RoboClaw& roboclaw, RoboClaw::kMotor motor, RoboClaw::TPIDQ& pidq)
       : Cmd(roboclaw, "ReadMotorVelocityPIDQ", motor), pidq_(pidq) {}
   void send() override {
     try {
-      roboclaw_.appendToWriteLog(
-          "ReadMotorVelocityPIDQ: motor: %d (%s), WROTE: ", motor_,
-          motor_ == RoboClaw::kM1 ? "M1" : "M2");
+      roboclaw_.appendToWriteLog("ReadMotorVelocityPIDQ: motor: %d (%s), WROTE: ", motor_,
+                                 motor_ == RoboClaw::kM1 ? "M1" : "M2");
       RoboClaw::TPIDQ result;
       uint16_t crc = 0;
       roboclaw_.updateCrc(crc, roboclaw_.portAddress_);
       roboclaw_.updateCrc(crc, motor_ == RoboClaw::kM1 ? kGETM1PID : kGETM2PID);
 
-      roboclaw_.writeN2(false, 2, roboclaw_.portAddress_,
-                        motor_ == RoboClaw::kM1 ? kGETM1PID : kGETM2PID);
+      roboclaw_.writeN2(false, 2, roboclaw_.portAddress_, motor_ == RoboClaw::kM1 ? kGETM1PID : kGETM2PID);
       result.p = (int32_t)roboclaw_.getULongCont2(crc) / 65536.0;
       result.i = (int32_t)roboclaw_.getULongCont2(crc) / 65536.0;
       result.d = (int32_t)roboclaw_.getULongCont2(crc) / 65536.0;
@@ -29,9 +30,8 @@ class CmdReadMotorVelocityPIDQ : public Cmd {
       responseCrc = datum << 8;
       datum = roboclaw_.readByteWithTimeout2();
       responseCrc |= datum;
-      roboclaw_.appendToReadLog(
-          ", RESULT: p: %3.4f, i: %3.4f, d: %3.4f, qpps: %d", result.p,
-          result.i, result.d, result.qpps);
+      roboclaw_.appendToReadLog(", RESULT: p: %3.4f, i: %3.4f, d: %3.4f, qpps: %d", result.p, result.i, result.d,
+                                result.qpps);
       if (responseCrc == crc) {
         pidq_ = result;
         return;
@@ -43,8 +43,7 @@ class CmdReadMotorVelocityPIDQ : public Cmd {
             crc, responseCrc);
       }
     } catch (...) {
-      RCUTILS_LOG_ERROR(
-          "[RoboClaw::CmdReadMotorVelocityPIDQ] Uncaught exception !!!");
+      RCUTILS_LOG_ERROR("[RoboClaw::CmdReadMotorVelocityPIDQ] Uncaught exception !!!");
     }
   }
 
@@ -55,5 +54,5 @@ class CmdReadMotorVelocityPIDQ : public Cmd {
     kGETM2PID = 56,
   } WHICH_MOTOR;
 
-  RoboClaw::TPIDQ &pidq_;
+  RoboClaw::TPIDQ& pidq_;
 };

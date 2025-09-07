@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 Wimblerobotics
+// https://github.com/wimblerobotics/ros2_roboclaw_driver
+
 #pragma once
 
 #include <chrono>
@@ -6,12 +10,11 @@
 
 class CmdDoBufferedM1M2DriveSpeedAccelDistance : public Cmd {
  public:
-  CmdDoBufferedM1M2DriveSpeedAccelDistance(
-      RoboClaw& roboclaw, uint32_t accel_quad_pulses_per_second,
-      int32_t m1_speed_quad_pulses_per_second,
-      uint32_t m1_max_distance_quad_pulses,
-      int32_t m2_speed_quad_pulses_per_second,
-      uint32_t m2_max_distance_quad_pulses)
+  CmdDoBufferedM1M2DriveSpeedAccelDistance(RoboClaw& roboclaw, uint32_t accel_quad_pulses_per_second,
+                                           int32_t m1_speed_quad_pulses_per_second,
+                                           uint32_t m1_max_distance_quad_pulses,
+                                           int32_t m2_speed_quad_pulses_per_second,
+                                           uint32_t m2_max_distance_quad_pulses)
       : Cmd(roboclaw, "DoBufferedDriveSpeedAccelDistance", RoboClaw::kNone),
         accel_quad_pulses_per_second_(accel_quad_pulses_per_second),
         m1_speed_quad_pulses_per_second_(m1_speed_quad_pulses_per_second),
@@ -37,17 +40,12 @@ class CmdDoBufferedM1M2DriveSpeedAccelDistance : public Cmd {
       roboclaw_.appendToWriteLog(
           "BufferedM1M2WithSignedSpeedAccelDist: accel: %d, m1Speed: %d, "
           "m1Distance: %d, m2Speed: %d, m2Distance: %d, WROTE: ",
-          accel_quad_pulses_per_second_, m1_speed_quad_pulses_per_second_,
-          m1_max_distance_quad_pulses_, m2_speed_quad_pulses_per_second_,
-          m2_max_distance_quad_pulses_);
-      roboclaw_.writeN2(true, 23, roboclaw_.portAddress_,
-                        RoboClaw::MIXEDSPEEDACCELDIST,
-                        SetDWORDval(accel_quad_pulses_per_second_),
-                        SetDWORDval(m1_speed_quad_pulses_per_second_),
-                        SetDWORDval(m1_max_distance_quad_pulses_),
-                        SetDWORDval(m2_speed_quad_pulses_per_second_),
-                        SetDWORDval(m2_max_distance_quad_pulses_),
-                        1 /* Cancel any previous command. */
+          accel_quad_pulses_per_second_, m1_speed_quad_pulses_per_second_, m1_max_distance_quad_pulses_,
+          m2_speed_quad_pulses_per_second_, m2_max_distance_quad_pulses_);
+      roboclaw_.writeN2(true, 23, roboclaw_.portAddress_, RoboClaw::MIXEDSPEEDACCELDIST,
+                        SetDWORDval(accel_quad_pulses_per_second_), SetDWORDval(m1_speed_quad_pulses_per_second_),
+                        SetDWORDval(m1_max_distance_quad_pulses_), SetDWORDval(m2_speed_quad_pulses_per_second_),
+                        SetDWORDval(m2_max_distance_quad_pulses_), 1 /* Cancel any previous command. */
       );
 
       // auto send_end = std::chrono::steady_clock::now();

@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025 Wimblerobotics
+// https://github.com/wimblerobotics/ros2_roboclaw_driver
+
 #pragma once
 
 #include "roboclaw_cmd.h"
@@ -15,8 +19,8 @@ class CmdReadMotorCurrents : public Cmd {
       unsigned long currentPair = roboclaw_.getUlongCommandResult2(RoboClaw::GETCURRENTS);
       motorCurrents_.m1Current = ((int16_t)(currentPair >> 16)) * 0.010;
       motorCurrents_.m2Current = ((int16_t)(currentPair & 0xFFFF)) * 0.010;
-      roboclaw_.appendToReadLog(", RESULT m1 current: %3.4f, m2 current: %3.4f",
-                                motorCurrents_.m1Current, motorCurrents_.m2Current);
+      roboclaw_.appendToReadLog(", RESULT m1 current: %3.4f, m2 current: %3.4f", motorCurrents_.m1Current,
+                                motorCurrents_.m2Current);
 
       // if (motorCurrents_.m1Current > roboclaw_.maxM1Current_) {
       //   roboclaw_.motorAlarms_ |= RoboClaw::kM1_OVER_CURRENT_ALARM;
