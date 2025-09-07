@@ -66,6 +66,9 @@ ros2_roboclaw_driver_node:  # Must match the node name in motor_driver_node.cpp.
     roboclaw_status_topic: "roboclaw_status"
     loop_sleep_ms: 10
 
+    # How often to publish /roboclaw_status
+    status_rate_hz: 1
+
     # Debugging control.
     do_debug: false # True => Log RoboClaw commands and responses.
     do_low_level_debug: false # True => Log low-level serial and RoboClaw data.
