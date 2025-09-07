@@ -25,6 +25,8 @@ find_package(rclcpp REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 include_directories(
   ${geometry_msgs_INCLUDE_DIRS}
@@ -65,7 +67,9 @@ add_executable(
 ament_target_dependencies(square_runner_test
   rclcpp
   geometry_msgs
-  nav_msgs)
+  nav_msgs
+  tf2
+  tf2_geometry_msgs)
 
 install(DIRECTORY include/ DESTINATION include/)
 

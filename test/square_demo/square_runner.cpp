@@ -33,12 +33,12 @@ class SquareRunner : public rclcpp::Node {
   explicit SquareRunner(double square_size = 0.5)
       : Node("square_runner"),
         square_size_(square_size),
-        current_state_(State::MOVING_FORWARD),
-        side_count_(0),
         linear_speed_(0.2),         // m/s
         angular_speed_(0.5),        // rad/s
         position_tolerance_(0.05),  // 5cm tolerance
-        angle_tolerance_(0.087)     // ~5 degree tolerance in radians
+        angle_tolerance_(0.087),    // ~5 degree tolerance in radians
+        current_state_(State::MOVING_FORWARD),
+        side_count_(0)
   {
     // Create publishers and subscribers
     cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
@@ -149,12 +149,12 @@ class SquareRunner : public rclcpp::Node {
     // Extract current yaw angle
     tf2::Quaternion current_quat;
     tf2::fromMsg(current_odom_.pose.pose.orientation, current_quat);
-    double current_yaw = tf2::getYaw(current_quat);
+    double current_yaw = quaternion_to_yaw(current_quat);
 
     // Extract target yaw angle
     tf2::Quaternion target_quat;
     tf2::fromMsg(target_position_.pose.pose.orientation, target_quat);
-    double target_yaw = tf2::getYaw(target_quat);
+    double target_yaw = quaternion_to_yaw(target_quat);
 
     // Calculate target yaw (90 degrees left)
     double desired_yaw = target_yaw + M_PI_2;
@@ -181,6 +181,17 @@ class SquareRunner : public rclcpp::Node {
       cmd_vel.angular.z = (angle_diff > 0) ? angular_speed_ : -angular_speed_;
       return false;
     }
+  }
+
+  /**
+   * @brief Convert quaternion to yaw angle
+   * @param quat Quaternion to convert
+   * @return Yaw angle in radians
+   */
+  double quaternion_to_yaw(const tf2::Quaternion& quat) {
+    double siny_cosp = 2 * (quat.w() * quat.z() + quat.x() * quat.y());
+    double cosy_cosp = 1 - 2 * (quat.y() * quat.y() + quat.z() * quat.z());
+    return std::atan2(siny_cosp, cosy_cosp);
   }
 
   // Node parameters
