@@ -340,7 +340,7 @@ void MotorDriver::getFreshEncoders(uint32_t& encoder_left_, uint32_t& encoder_ri
 void MotorDriver::controlLoopCallback() {
   auto clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
 
-  // Process cmd_vel with TeensyV2-style filtering
+  // Process cmd_vel commands
   processCmdVel();
 
   // Publish timing trackers
