@@ -27,6 +27,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 include_directories(
   ${geometry_msgs_INCLUDE_DIRS}
@@ -55,7 +56,7 @@ add_executable(
   src/RoboClaw.cpp)
 
 ament_target_dependencies(ros2_roboclaw_driver_node rclcpp geometry_msgs
-                          nav_msgs sensor_msgs std_msgs)
+                          nav_msgs sensor_msgs std_msgs tf2 tf2_geometry_msgs tf2_ros)
 
 target_link_libraries(ros2_roboclaw_driver_node "${cpp_typesupport_target}")
 
