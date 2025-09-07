@@ -57,9 +57,19 @@ ament_target_dependencies(ros2_roboclaw_driver_node rclcpp geometry_msgs
 
 target_link_libraries(ros2_roboclaw_driver_node "${cpp_typesupport_target}")
 
+# Add square test executable
+add_executable(
+  square_runner_test
+  test/square_demo/square_runner.cpp)
+
+ament_target_dependencies(square_runner_test
+  rclcpp
+  geometry_msgs
+  nav_msgs)
+
 install(DIRECTORY include/ DESTINATION include/)
 
-install(TARGETS ros2_roboclaw_driver_node
+install(TARGETS ros2_roboclaw_driver_node square_runner_test
         DESTINATION lib/${PROJECT_NAME})
 
 # Install launch files
