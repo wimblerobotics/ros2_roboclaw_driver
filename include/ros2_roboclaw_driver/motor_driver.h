@@ -18,9 +18,12 @@
  */
 #pragma once
 
+#include <tf2_ros/transform_broadcaster.h>
+
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <memory>
 #include <mutex>
@@ -28,8 +31,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <thread>
-#include <tf2_ros/transform_broadcaster.h>
-#include <geometry_msgs/msg/transform_stamped.hpp>
 
 #include "ros2_roboclaw_driver/RoboClaw.h"
 #include "ros2_roboclaw_driver/msg/robo_claw_status.hpp"
@@ -100,8 +101,7 @@ class MotorDriver {
   void publisherThread();
   void setupStatsTimer();
   void controlLoopCallback();  // Timer callback for unified high-rate loop
-  void getFreshEncoders(uint32_t& encoder_left_, uint32_t& encoder_right_, uint8_t& encoder_left_status_,
-                        uint8_t& encoder_right_status_);
+  void getFreshEncoders(uint32_t& encoder_left_, uint32_t& encoder_right_);
 
   // Odometry methods
   void integrateOdometry();
@@ -136,6 +136,7 @@ class MotorDriver {
   float max_seconds_uncommanded_travel_;
   bool publish_joint_states_;
   bool publish_odom_;
+  bool publish_odom_tf_;
   int quad_pulses_per_meter_;
   float quad_pulses_per_revolution_;
   float sensor_update_rate_;  // Hz
@@ -183,15 +184,8 @@ class MotorDriver {
   // Incremental sensor polling state & cache
   // Status data collection state machine (6 states: encoders, velocities,
   // currents, logic_bat, main_bat, temp_status)
-  enum StatusDataState {
-    ENCODERS_SPEED = 0,
-    MOTOR_CURRENTS = 1,
-    LOGIC_BATTERY = 2,
-    MAIN_BATTERY = 3,
-    TEMPERATURE = 4,
-    STATUS_BITS = 5
-  };
-  StatusDataState status_data_state_{ENCODERS_SPEED};
+  enum StatusDataState { MOTOR_CURRENTS = 1, LOGIC_BATTERY = 2, MAIN_BATTERY = 3, TEMPERATURE = 4, STATUS_BITS = 5 };
+  StatusDataState status_data_state_{MOTOR_CURRENTS};
   std::chrono::steady_clock::time_point last_status_data_collection_{};
   double status_data_interval_ms_{0.0};  // Will be calculated as status_rate period / 6
   // Status data collection flags (encoders always read for odom/joint_states)
@@ -199,8 +193,6 @@ class MotorDriver {
   uint8_t encoder_left_status_{0};
   uint32_t encoder_right_{0};
   uint8_t encoder_right_status_{0};
-  int32_t velocity_left_{0};
-  int32_t velocity_right_{0};
   struct MotorCurrentsCache {
     float m1Current = 0.0f;
     float m2Current = 0.0f;

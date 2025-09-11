@@ -148,27 +148,14 @@ class RoboClaw {
   // Get the encoder value for motor 1.
   uint32_t getM1Encoder();
 
-  // Get the status of the encoder for motor 1.
-  // 0 = no error, 1 = encoder command error, 2 = encoder not found.
-  int8_t getM1EncoderStatus();
-
   // Get the encoder value for motor 2.
   uint32_t getM2Encoder();
-
-  // Get the status of the encoder for motor 2.
-  // 0 = no error, 1 = encoder command error, 2 = encoder not found.
-  int8_t getM2EncoderStatus();
 
   // Convenience structure to  hold a pair of current values.
   typedef struct {
     float m1Current;
     float m2Current;
   } TMotorCurrents;
-
-  // Make sure you call getMotorCurrents before getMotorAlarms.
-  int getMotorAlarms() {
-    return motorAlarms_;
-  }
 
   // Get the value of currents flowig  into each motors.
   TMotorCurrents getMotorCurrents();
@@ -200,8 +187,8 @@ class RoboClaw {
   // Note: This is the temperature of the RoboClaw controller board itself.
   float getTemperature();
 
-  // Get velocity (speed) of a motor.
-  int32_t getVelocity(kMotor motor);
+  // // Get velocity (speed) of a motor.
+  // int32_t getVelocity(kMotor motor);
 
   // Get RoboClaw software version.
   std::string getVersion();
@@ -211,9 +198,6 @@ class RoboClaw {
 
   // Get singleton instance of class.
   static RoboClaw* singleton();
-
-  // Read a group of sensors from the RoboClaw.
-  void readSensorGroup();
 
  protected:
   // Write a stream of bytes to the device.
@@ -228,34 +212,6 @@ class RoboClaw {
 
   // Get RoboClaw error status as a string.
   std::string getErrorString(uint32_t errorStatus);
-
-  // Various values are periodically read from the RoboClaw as a group and
-  // stored in this structure. Clients wanting these values will get the latest,
-  // cached results from this structure rather than the current values from the
-  // RoboClaw. This is to avoid excessive RoboClaw reads which can cause
-  // timeouts and other issues. The values are read from the RoboClaw in the
-  // readSensorGroup() method. The values are updated in the readSensorGroup()
-  // method and can be accessed by clients using the g_sensor_value_group_
-  // structure.
-  typedef struct {
-    uint32_t error_status;  // now 32-bit per updated RoboClaw manual
-    std::string error_string;
-    float logic_battery_level;
-    EncodeResult m1_encoder_command_result;
-    TPIDQ m1_pidq;
-    int32_t m1_velocity;
-    EncodeResult m2_encoder_command_result;
-    TPIDQ m2_pidq;
-    int32_t m2_velocity;
-    float main_battery_level;
-    int motor_alarms;
-    TMotorCurrents motor_currents;
-    float temperature;
-    std::chrono::system_clock::time_point last_sensor_read_time_;
-  } SensorValueGroup;
-
-  // This structure holds the latest values read from the RoboClaw.
-  SensorValueGroup g_sensor_value_group_;
 
   // Enum values without a 'k' prefix have not been used in code yet.
   typedef enum ROBOCLAW_COMMAND {
@@ -308,6 +264,7 @@ class RoboClaw {
     M1DUTYACCEL = 52,
     M2DUTYACCEL = 53,
     MIXEDDUTYACCEL = 54,
+    GETENCODERVALUES = 78,
     GETTEMPERATURE = 82,
     GETERROR = 90,
     WRITENVM = 94,
@@ -420,6 +377,7 @@ class RoboClaw {
   friend class CmdDoBufferedM1M2DriveSpeedAccelDistance;
   friend class CmdReadEncoderSpeed;
   friend class CmdReadEncoder;
+  friend class CmdReadEncoderValues;
   friend class CmdReadFirmwareVersion;
   friend class CmdReadLogicBatteryVoltage;
   friend class CmdReadMainBatteryVoltage;

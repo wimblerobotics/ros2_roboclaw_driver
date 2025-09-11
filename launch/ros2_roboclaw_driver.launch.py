@@ -60,6 +60,9 @@ def generate_launch_description():
         package='ros2_roboclaw_driver',
         parameters=[configParams],
         # prefix=['xterm -e gdb -ex run --args'],
+        remappings=[
+                ('/odom', '/sigyn/wheel_odom'),
+            ],
         respawn=True,
         output='screen')
     ld.add_action(motor_driver_node)

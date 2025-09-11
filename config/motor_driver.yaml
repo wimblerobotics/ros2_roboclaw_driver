@@ -46,10 +46,15 @@ ros2_roboclaw_driver_node:  # Must match the node name in motor_driver_node.cpp.
 
     # If no new motor commands is received since the last motor
     # command in this number of seconds, stop the motors.
-    max_seconds_uncommanded_travel: 0.25
+    max_seconds_uncommanded_travel: 0.05
 
-    publish_joint_states: true
+    publish_joint_states: false
+    joint_state_rate_hz: 50
+
     publish_odom: true
+    odom_rate_hz: 10
+
+    publish_odom_tf: false
 
     # Based upon your particular motor gearing and encoders.
     # These values are used to scale cmd_vel commands
@@ -72,3 +77,41 @@ ros2_roboclaw_driver_node:  # Must match the node name in motor_driver_node.cpp.
     # Debugging control.
     do_debug: false # True => Log RoboClaw commands and responses.
     do_low_level_debug: false # True => Log low-level serial and RoboClaw data.
+
+# Duplicate section for direct debugging when the node name is 'motor_driver_node'.
+# This allows the same file to be used both via launch (which extracts the
+# ros2_roboclaw_driver_node block) and via --params-file when launching the
+# installed binary directly (which requires a top-level key matching the node name).
+motor_driver_node:
+  ros__parameters:
+    accel_quad_pulses_per_second: 3000
+    device_name: "/dev/roboclaw"
+    baud_rate: 38400
+    device_port: 128
+    m1_p: 7.26239
+    m1_i: 2.43
+    m1_d: 0.0
+    m1_qpps: 2437
+    m2_p: 7.26239
+    m2_i: 2.43
+    m2_d: 0.0
+    m2_qpps: 2437
+    m1_max_current: 100.0
+    m2_max_current: 100.0
+    max_angular_velocity: 0.07
+    max_linear_velocity: 0.447
+    max_seconds_uncommanded_travel: 0.05
+    publish_joint_states: false
+    joint_state_rate_hz: 50
+    publish_odom: true
+    odom_rate_hz: 10
+    publish_odom_tf: true
+    quad_pulses_per_meter: 3114
+    quad_pulses_per_revolution: 1000.0
+    wheel_radius: 0.051112072
+    wheel_separation: 0.3906
+    roboclaw_status_topic: "roboclaw_status"
+    loop_sleep_ms: 10
+    status_rate_hz: 1
+    do_debug: true
+    do_low_level_debug: false

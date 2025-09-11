@@ -66,7 +66,6 @@ RoboClaw::RoboClaw(const TPIDQ m1Pid, const TPIDQ m2Pid, float m1MaxCurrent, flo
   // ros2_roboclaw_driver::srv::ResetEncoders::Response response;
   // resetEncoders(resetRequest, response);
   g_singleton = this;
-  readSensorGroup();
 }
 
 RoboClaw::~RoboClaw() {}
@@ -80,7 +79,10 @@ void RoboClaw::doMixedSpeedAccelDist(uint32_t accel_quad_pulses_per_second, int3
 }
 
 uint32_t RoboClaw::getErrorStatus() {
-  return g_sensor_value_group_.error_status;
+  uint32_t status = 0;
+  CmdReadStatus cmd_read_status(*this, status);
+  cmd_read_status.execute();
+  return status;
 }
 
 void RoboClaw::decodeErrorStatus(uint32_t error_status, char* buffer, size_t size) const {
@@ -262,11 +264,17 @@ std::string RoboClaw::getErrorString(uint32_t status) {
 }
 
 float RoboClaw::getLogicBatteryLevel() {
-  return g_sensor_value_group_.logic_battery_level;
+  float logic_battery_level = 0.0;
+  CmdReadLogicBatteryVoltage cmd_logic_battery(*this, logic_battery_level);
+  cmd_logic_battery.execute();
+  return logic_battery_level;
 }
 
 float RoboClaw::getMainBatteryLevel() {
-  return g_sensor_value_group_.main_battery_level;
+  float main_battery_level = 0.0;
+  CmdReadMainBatteryVoltage cmd_main_battery(*this, main_battery_level);
+  cmd_main_battery.execute();
+  return main_battery_level;
 }
 
 // ### change result type to uint16_t
@@ -303,19 +311,31 @@ unsigned short RoboClaw::get2ByteCommandResult2(uint8_t command) {
 }
 
 RoboClaw::TMotorCurrents RoboClaw::getMotorCurrents() {
-  return g_sensor_value_group_.motor_currents;
+  TMotorCurrents motor_currents{};
+  CmdReadMotorCurrents cmd_read_motor_currents(*this, motor_currents);
+  cmd_read_motor_currents.execute();
+  return motor_currents;
 }
 
 RoboClaw::TPIDQ RoboClaw::getPIDQM1() {
-  return g_sensor_value_group_.m1_pidq;
+  TPIDQ read_velocity_pidq_result;
+  CmdReadMotorVelocityPIDQ cmd_read_motor_velocity_pidq(*this, kM1, read_velocity_pidq_result);
+  cmd_read_motor_velocity_pidq.execute();
+  return read_velocity_pidq_result;
 }
 
 RoboClaw::TPIDQ RoboClaw::getPIDQM2() {
-  return g_sensor_value_group_.m2_pidq;
+  TPIDQ read_velocity_pidq_result;
+  CmdReadMotorVelocityPIDQ cmd_read_motor_velocity_pidq(*this, kM2, read_velocity_pidq_result);
+  cmd_read_motor_velocity_pidq.execute();
+  return read_velocity_pidq_result;
 }
 
 float RoboClaw::getTemperature() {
-  return g_sensor_value_group_.temperature;
+  float temperature = 0.0;
+  CmdReadTemperature cmd_read_temperature(*this, temperature);
+  cmd_read_temperature.execute();
+  return temperature;
 }
 
 unsigned long RoboClaw::getUlongCommandResult2(uint8_t command) {
@@ -372,14 +392,6 @@ uint32_t RoboClaw::getULongCont2(uint16_t& crc) {
   return result;
 }
 
-int32_t RoboClaw::getVelocity(kMotor motor) {
-  if (motor == kM1) {
-    return g_sensor_value_group_.m1_velocity;
-  } else {
-    return g_sensor_value_group_.m2_velocity;
-  }
-}
-
 int32_t RoboClaw::getVelocityResult(uint8_t command) {
   uint16_t crc = 0;
   updateCrc(crc, portAddress_);
@@ -426,19 +438,17 @@ int32_t RoboClaw::getVelocityResult(uint8_t command) {
 }
 
 uint32_t RoboClaw::getM1Encoder() {
-  return g_sensor_value_group_.m1_encoder_command_result.value;
-}
-
-int8_t RoboClaw::getM1EncoderStatus() {
-  return g_sensor_value_group_.m1_encoder_command_result.status;
+  EncodeResult encoder_command_result{};
+  CmdReadEncoder read_encoder_cmd(*this, kM1, encoder_command_result);
+  read_encoder_cmd.execute();
+  return encoder_command_result.value;
 }
 
 uint32_t RoboClaw::getM2Encoder() {
-  return g_sensor_value_group_.m2_encoder_command_result.value;
-}
-
-int8_t RoboClaw::getM2EncoderStatus() {
-  return g_sensor_value_group_.m2_encoder_command_result.status;
+  EncodeResult encoder_command_result{};
+  CmdReadEncoder read_encoder_cmd(*this, kM2, encoder_command_result);
+  read_encoder_cmd.execute();
+  return encoder_command_result.value;
 }
 
 std::string RoboClaw::getVersion() {
@@ -596,60 +606,6 @@ uint8_t RoboClaw::readByteWithTimeout2() {
   }
 
   return 0;
-}
-
-void RoboClaw::readSensorGroup() {
-  if (singleton() != nullptr) {
-    TPIDQ m1_read_velocity_pidq_result;
-    TPIDQ m2_read_velocity_pidq_result;
-    CmdReadMotorVelocityPIDQ cmd_m1_read_motor_velocity_pidq(*this, kM1, m1_read_velocity_pidq_result);
-    cmd_m1_read_motor_velocity_pidq.execute();
-    CmdReadMotorVelocityPIDQ cmd_m2_read_motor_velocity_pidq(*this, kM2, m2_read_velocity_pidq_result);
-    cmd_m2_read_motor_velocity_pidq.execute();
-    float logic_battery_level = 0.0;
-    CmdReadLogicBatteryVoltage cmd_logic_battery(*this, logic_battery_level);
-    cmd_logic_battery.execute();
-    float main_battery_level = 0.0;
-    CmdReadMainBatteryVoltage cmd_main_battery(*this, main_battery_level);
-    cmd_main_battery.execute();
-    EncodeResult m1_encoder_command_result{};
-    EncodeResult m2_encoder_command_result{};
-    CmdReadEncoder m1_read_encoder_cmd(*this, kM1, m1_encoder_command_result);
-    m1_read_encoder_cmd.execute();
-    CmdReadEncoder m2_read_encoder_cmd(*this, kM2, m2_encoder_command_result);
-    m2_read_encoder_cmd.execute();
-    TMotorCurrents motor_currents{};
-    CmdReadMotorCurrents cmd_read_motor_currents(*this, motor_currents);
-    cmd_read_motor_currents.execute();
-    int32_t m1_encoder_speed = 0;
-    int32_t m2_encoder_speed = 0;
-    CmdReadEncoderSpeed cmd_m1_read_encoder_speed(*this, kM1, m1_encoder_speed);
-    cmd_m1_read_encoder_speed.execute();
-    CmdReadEncoderSpeed cmd_m2_read_encoder_speed(*this, kM2, m2_encoder_speed);
-    cmd_m2_read_encoder_speed.execute();
-    float temperature = 0.0;
-    CmdReadTemperature cmd_read_temperature(*this, temperature);
-    cmd_read_temperature.execute();
-    uint32_t status = 0;
-    CmdReadStatus cmd_read_status(*this, status);
-    cmd_read_status.execute();
-    g_sensor_value_group_.error_status = status;
-    g_sensor_value_group_.error_string = singleton()->getErrorString(status);
-    g_sensor_value_group_.logic_battery_level = logic_battery_level;
-    g_sensor_value_group_.m1_encoder_command_result = m1_encoder_command_result;
-    g_sensor_value_group_.m1_pidq = m1_read_velocity_pidq_result;
-    g_sensor_value_group_.m1_velocity = m1_encoder_speed;
-    g_sensor_value_group_.m2_encoder_command_result = m2_encoder_command_result;
-    g_sensor_value_group_.m2_pidq = m2_read_velocity_pidq_result;
-    g_sensor_value_group_.m2_velocity = m2_encoder_speed;
-    g_sensor_value_group_.main_battery_level = main_battery_level;
-
-    // Call getMotorCurrents before getMotorAlarms;
-    g_sensor_value_group_.motor_currents = motor_currents;
-    g_sensor_value_group_.motor_alarms = singleton()->getMotorAlarms();
-    g_sensor_value_group_.temperature = temperature;
-    g_sensor_value_group_.last_sensor_read_time_ = std::chrono::system_clock::now();
-  }
 }
 
 /*

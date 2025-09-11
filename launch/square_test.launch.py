@@ -20,6 +20,9 @@ def generate_launch_description():
         executable='square_runner_test',
         name='square_runner_test',
         arguments=[LaunchConfiguration('square_size')],
+        # remappings=[
+        #         ('/odom', '/sigyn/wheel_odom'),
+        #     ],
         output='screen'
     )
 

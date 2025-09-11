@@ -7,6 +7,7 @@
 #include <math.h>
 #include <rcutils/logging_macros.h>
 #include <stdint.h>
+#include <tf2/LinearMath/Quaternion.h>
 
 #include <algorithm>
 #include <chrono>
@@ -14,14 +15,12 @@
 #include <rclcpp/qos.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <string>
-#include <thread>
-#include <tf2/LinearMath/Quaternion.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <thread>
 
 #include "ros2_roboclaw_driver/RoboClaw.h"
 #include "ros2_roboclaw_driver/roboclaw_cmd_do_buffered_m1m2_drive_speed_accel_distance.h"
-#include "ros2_roboclaw_driver/roboclaw_cmd_read_encoder.h"
-#include "ros2_roboclaw_driver/roboclaw_cmd_read_encoder_speed.h"
+#include "ros2_roboclaw_driver/roboclaw_cmd_read_encoder_values.h"
 #include "ros2_roboclaw_driver/roboclaw_cmd_read_logic_battery_voltage.h"
 #include "ros2_roboclaw_driver/roboclaw_cmd_read_main_battery_voltage.h"
 #include "ros2_roboclaw_driver/roboclaw_cmd_read_motor_currents.h"
@@ -53,6 +52,7 @@ void MotorDriver::declareParameters(rclcpp::Node& node) {
   node.declare_parameter<float>("max_seconds_uncommanded_travel", 0.0);
   node.declare_parameter<bool>("publish_joint_states", true);
   node.declare_parameter<bool>("publish_odom", true);
+  node.declare_parameter<bool>("publish_odom_tf", false);
   node.declare_parameter<int>("quad_pulses_per_meter", 0);
   node.declare_parameter<float>("quad_pulses_per_revolution", 0);
   node.declare_parameter<float>("sensor_update_rate", 20.0);
@@ -93,6 +93,7 @@ void MotorDriver::initializeParameters(rclcpp::Node& node) {
   node.get_parameter("max_seconds_uncommanded_travel", max_seconds_uncommanded_travel_);
   node.get_parameter("publish_joint_states", publish_joint_states_);
   node.get_parameter("publish_odom", publish_odom_);
+  node.get_parameter("publish_odom_tf", publish_odom_tf_);
   node.get_parameter("quad_pulses_per_meter", quad_pulses_per_meter_);
   node.get_parameter("quad_pulses_per_revolution", quad_pulses_per_revolution_);
   node.get_parameter("sensor_update_rate", sensor_update_rate_);
@@ -165,6 +166,7 @@ void MotorDriver::logParameters() const {
   RCUTILS_LOG_INFO("max_seconds_uncommanded_travel: %f", max_seconds_uncommanded_travel_);
   RCUTILS_LOG_INFO("publish_joint_states: %s", publish_joint_states_ ? "True" : "False");
   RCUTILS_LOG_INFO("publish_odom: %s", publish_odom_ ? "True" : "False");
+  RCUTILS_LOG_INFO("publish_odom_tf: %s", publish_odom_tf_ ? "True" : "False");
   RCUTILS_LOG_INFO("quad_pulses_per_meter: %d", quad_pulses_per_meter_);
   RCUTILS_LOG_INFO("quad_pulses_per_revolution: %3.4f", quad_pulses_per_revolution_);
   RCUTILS_LOG_INFO("sensor_update_rate: %f", sensor_update_rate_);
@@ -227,11 +229,6 @@ void MotorDriver::processCmdVel() {
       CmdDoBufferedM1M2DriveSpeedAccelDistance cmd = CmdDoBufferedM1M2DriveSpeedAccelDistance(
           *roboclaw_, accel_quad_pulses_per_second_, m1_qpps, m1_max_distance, m2_qpps, m2_max_distance);
       cmd.execute();
-
-      int32_t speed = 0;
-      CmdReadEncoderSpeed cmd_m1_read_encoder_speed(*roboclaw_, RoboClaw::kM1, speed);
-      cmd_m1_read_encoder_speed.execute();
-      RCUTILS_LOG_DEBUG("M1 speed: %d", speed);
     } catch (const std::exception& ex) {
       RCUTILS_LOG_ERROR("Failed to send motor command for cmd_vel: %s", ex.what());
     } catch (...) {
@@ -298,7 +295,9 @@ void MotorDriver::onInit(rclcpp::Node::SharedPtr node) {
 
   if (publish_odom_) {
     odom_publisher_ = node_->create_publisher<nav_msgs::msg::Odometry>("odom", qos);
-    tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(node_);
+    if (publish_odom_tf_) {
+      tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(node_);
+    }
   }
 
   // Start unified control loop timer (publishes and drives motors)
@@ -316,36 +315,24 @@ MotorDriver& MotorDriver::singleton() {
 
 MotorDriver* MotorDriver::g_singleton = nullptr;
 
-void MotorDriver::getFreshEncoders(uint32_t& encoder_left_, uint32_t& encoder_right_, uint8_t& encoder_left_status_,
-                                   uint8_t& encoder_right_status_) {
-  RoboClaw::EncodeResult encoder_result;
+void MotorDriver::getFreshEncoders(uint32_t& encoder_left, uint32_t& encoder_right) {
   static uint64_t last_loop_count = 0;
   static uint32_t cached_encoder_left = 0;
   static uint32_t cached_encoder_right = 0;
-  static uint8_t cached_encoder_left_status = 0;
-  static uint8_t cached_encoder_right_status = 0;
 
   if (loop_iteration_count_ != last_loop_count) {
     // Only read once per control loop iteration
     auto* rc = roboclaw_;
     if (rc) {
-      CmdReadEncoder cmd1 = CmdReadEncoder(*rc, RoboClaw::kM1, encoder_result);
+      CmdReadEncoderValues cmd1 = CmdReadEncoderValues(*rc, cached_encoder_left, cached_encoder_right);
       cmd1.execute();
-      cached_encoder_left = encoder_result.value;
-      cached_encoder_left_status = encoder_result.status;
-      CmdReadEncoder cmd2 = CmdReadEncoder(*rc, RoboClaw::kM2, encoder_result);
-      cmd2.execute();
-      cached_encoder_right = encoder_result.value;
-      cached_encoder_right_status = encoder_result.status;
       last_loop_count = loop_iteration_count_;
     }
   }
 
   // Always return cached values
-  encoder_left_ = cached_encoder_left;
-  encoder_right_ = cached_encoder_right;
-  encoder_left_status_ = cached_encoder_left_status;
-  encoder_right_status_ = cached_encoder_right_status;
+  encoder_left = cached_encoder_left;
+  encoder_right = cached_encoder_right;
 }
 
 void MotorDriver::controlLoopCallback() {
@@ -358,9 +345,6 @@ void MotorDriver::controlLoopCallback() {
   static auto last_odom_pub = std::chrono::steady_clock::now();
   static auto last_joint_pub = std::chrono::steady_clock::now();
   static auto last_status_pub = std::chrono::steady_clock::now();
-  static int32_t last_left_encoder = 0;
-  static int32_t last_right_encoder = 0;
-  static bool encoders_initialized = false;
   static bool status_interval_initialized = false;
   static struct Pose2D {
     float x = 0;
@@ -371,8 +355,8 @@ void MotorDriver::controlLoopCallback() {
     float linear_x = 0;
     float angular_z = 0;
   } current_velocity;
-  static double joint_left_accum = 0.0;  // continuous wheel angle (rad)
-  static double joint_right_accum = 0.0; // continuous wheel angle (rad)
+  static double joint_left_accum = 0.0;   // continuous wheel angle (rad)
+  static double joint_right_accum = 0.0;  // continuous wheel angle (rad)
 
   // Initialize status data collection interval (1/6 of status publish period)
   if (!status_interval_initialized) {
@@ -397,13 +381,6 @@ void MotorDriver::controlLoopCallback() {
         status_data_interval_ms_) {
       try {
         switch (status_data_state_) {
-          case ENCODERS_SPEED: {
-            CmdReadEncoderSpeed cmd1 = CmdReadEncoderSpeed(*rc, RoboClaw::kM1, velocity_left_);
-            cmd1.execute();
-            CmdReadEncoderSpeed cmd2 = CmdReadEncoderSpeed(*rc, RoboClaw::kM2, velocity_right_);
-            cmd2.execute();
-            break;
-          }
           case MOTOR_CURRENTS: {
             RoboClaw::TMotorCurrents motor_currents;
             CmdReadMotorCurrents cmd = CmdReadMotorCurrents(*rc, motor_currents);
@@ -445,7 +422,19 @@ void MotorDriver::controlLoopCallback() {
     // Joint states publish
     if (publish_joint_states_ && joint_state_publisher_ &&
         (std::chrono::duration<double>(now_tp - last_joint_pub).count() >= 1.0 / std::max(1, joint_state_rate_hz_))) {
-      getFreshEncoders(encoder_left_, encoder_right_, encoder_left_status_, encoder_right_status_);
+      getFreshEncoders(encoder_left_, encoder_right_);
+      static int32_t last_left_encoder = 0;
+      static int32_t last_right_encoder = 0;
+      static bool encoders_initialized = false;
+      if (!encoders_initialized) {
+        last_left_encoder = encoder_left_;
+        last_right_encoder = encoder_right_;
+        encoders_initialized = true;
+      }
+      double dt = std::chrono::duration<double>(now_tp - last_joint_pub).count();
+      if (dt <= 0.010f)
+        return;
+
       sensor_msgs::msg::JointState js;
       js.header.stamp = clock->now();
       js.name = {"front_left_wheel", "front_right_wheel"};
@@ -455,13 +444,21 @@ void MotorDriver::controlLoopCallback() {
         joint_left_accum = encoder_left_ * radians_per_pulse_;
         joint_right_accum = encoder_right_ * radians_per_pulse_;
       }
+
       // Instantaneous wheel angular velocity from pulses/sec
       double wheel_left_rad_s = 0.0;
       double wheel_right_rad_s = 0.0;
+
+      double velocity_left = (double)(encoder_left_ - last_left_encoder) / dt;
+      double velocity_right = (double)(encoder_right_ - last_right_encoder) / dt;
       if (radians_per_pulse_ > 0.0) {
-        wheel_left_rad_s = velocity_left_ * radians_per_pulse_;
-        wheel_right_rad_s = velocity_right_ * radians_per_pulse_;
+        wheel_left_rad_s = velocity_left * radians_per_pulse_;
+        wheel_right_rad_s = velocity_right * radians_per_pulse_;
       }
+
+      last_left_encoder = encoder_left_;
+      last_right_encoder = encoder_right_;
+
       js.position.clear();
       js.position.push_back(joint_left_accum);
       js.position.push_back(joint_right_accum);
@@ -475,15 +472,22 @@ void MotorDriver::controlLoopCallback() {
     // Odometry publish
     if (publish_odom_ && odom_publisher_ &&
         (std::chrono::duration<double>(now_tp - last_odom_pub).count() >= 1.0 / std::max(1, odom_rate_hz_))) {
-      getFreshEncoders(encoder_left_, encoder_right_, encoder_left_status_, encoder_right_status_);
+      getFreshEncoders(encoder_left_, encoder_right_);
+      static int32_t last_left_encoder = 0;
+      static int32_t last_right_encoder = 0;
+      static bool encoders_initialized = false;
+
       if (!encoders_initialized) {
         last_left_encoder = encoder_left_;
         last_right_encoder = encoder_right_;
         encoders_initialized = true;
       }
+
       // Actual dt
       double dt = std::chrono::duration<double>(now_tp - last_odom_pub).count();
-      if (dt <= 0.0) dt = 1.0 / std::max(1, odom_rate_hz_);
+      // if (dt <= 0.0) dt = 1.0 / std::max(1, odom_rate_hz_);
+      if (dt <= 0.010f)
+        return;
 
       int32_t delta_left = encoder_left_ - last_left_encoder;
       int32_t delta_right = encoder_right_ - last_right_encoder;
@@ -503,15 +507,19 @@ void MotorDriver::controlLoopCallback() {
       // Normalize
       current_pose.theta = std::atan2(std::sin(current_pose.theta), std::cos(current_pose.theta));
 
-      // Instantaneous (from wheel velocities) vs integrated
-      double v_left = 0.0, v_right = 0.0;
-      if (meters_per_pulse_ > 0.0) {
-        // velocity_* is pulses/sec; convert to m/s
-        v_left = velocity_left_ * meters_per_pulse_;
-        v_right = velocity_right_ * meters_per_pulse_;
-      }
-      current_velocity.linear_x = (v_left + v_right) / 2.0;
-      current_velocity.angular_z = (v_right - v_left) / wheel_separation_;
+      // Update velocity
+      current_velocity.linear_x = delta_distance / dt;
+      current_velocity.angular_z = delta_theta / dt;
+
+      // // Instantaneous (from wheel velocities) vs integrated
+      // double v_left = 0.0, v_right = 0.0;
+      // if (meters_per_pulse_ > 0.0) {
+      //   // velocity_* is pulses/sec; convert to m/s
+      //   v_left = velocity_left_ * meters_per_pulse_;
+      //   v_right = velocity_right_ * meters_per_pulse_;
+      // }
+      // current_velocity.linear_x = (v_left + v_right) / 2.0;
+      // current_velocity.angular_z = (v_right - v_left) / wheel_separation_;
 
       nav_msgs::msg::Odometry odom;
       odom.header.stamp = clock->now();
@@ -528,15 +536,25 @@ void MotorDriver::controlLoopCallback() {
       odom.twist.twist.linear.x = current_velocity.linear_x;
       odom.twist.twist.linear.y = 0.0;
       odom.twist.twist.angular.z = current_velocity.angular_z;
+      // {  // Convert quaternion to Euler angle (yaw)
+      //   tf2::Quaternion q(odom.pose.pose.orientation.x, odom.pose.pose.orientation.y, odom.pose.pose.orientation.z,
+      //                     odom.pose.pose.orientation.w);
+      //   double roll, pitch, yaw;
+      //   tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+      //   double euler_z = yaw;
+      //   RCUTILS_LOG_INFO("Odom: x=%.3f y=%.3f yaw=%.3f lin_x=%.3f ang_z=%.3f, encoder_left:%d encoder_right:%d",
+      //                    current_pose.x, current_pose.y, euler_z, current_velocity.linear_x,
+      //                    current_velocity.angular_z, encoder_left_, encoder_right_);
+      // }
 
       // Improved covariance (simple heuristic)
       // Position covariance grows modestly with motion; yaw higher when rotating
-      double lin_var = 0.02; // m^2 baseline
-      double yaw_var = 0.05 + 0.1 * std::fabs(current_velocity.angular_z); // rad^2
+      double lin_var = 0.02;                                                // m^2 baseline
+      double yaw_var = 0.05 + 0.1 * std::fabs(current_velocity.angular_z);  // rad^2
       std::fill(odom.pose.covariance.begin(), odom.pose.covariance.end(), 0.0);
-      odom.pose.covariance[0] = lin_var;    // x
-      odom.pose.covariance[7] = lin_var;    // y
-      odom.pose.covariance[35] = yaw_var;   // yaw
+      odom.pose.covariance[0] = lin_var;   // x
+      odom.pose.covariance[7] = lin_var;   // y
+      odom.pose.covariance[35] = yaw_var;  // yaw
       std::fill(odom.twist.covariance.begin(), odom.twist.covariance.end(), 0.0);
       odom.twist.covariance[0] = lin_var;   // vx
       odom.twist.covariance[35] = yaw_var;  // wyaw
@@ -544,7 +562,7 @@ void MotorDriver::controlLoopCallback() {
       odom_publisher_->publish(odom);
 
       // TF
-      if (tf_broadcaster_) {
+      if (publish_odom_tf_ && tf_broadcaster_) {
         geometry_msgs::msg::TransformStamped tf_msg;
         tf_msg.header.stamp = odom.header.stamp;
         tf_msg.header.frame_id = "odom";
@@ -573,7 +591,7 @@ void MotorDriver::controlLoopCallback() {
           (std::chrono::duration<double>(now_tp - last_odom_pub).count() >= 1.0 / std::max(1, odom_rate_hz_));
 
       if (!joint_states_published && !odom_published) {
-        getFreshEncoders(encoder_left_, encoder_right_, encoder_left_status_, encoder_right_status_);
+        getFreshEncoders(encoder_left_, encoder_right_);
       }
 
       ros2_roboclaw_driver::msg::RoboClawStatus msg;
@@ -589,8 +607,6 @@ void MotorDriver::controlLoopCallback() {
       msg.m2_d = m2.d;
       msg.m2_qpps = m2.qpps;
       try {
-        msg.m1_current_speed = velocity_left_;
-        msg.m2_current_speed = velocity_right_;
         msg.m1_motor_current = motor_currents_.m1Current;
         msg.m2_motor_current = motor_currents_.m2Current;
         msg.m1_encoder_value = encoder_left_;

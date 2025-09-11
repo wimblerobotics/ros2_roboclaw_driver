@@ -82,6 +82,12 @@ install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME}/
 )
 
+# Install analysis tools (Python scripts)
+install(PROGRAMS
+  tools/odometry_analysis/compare_bags.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 install(DIRECTORY include/ DESTINATION include/)
 
 if(BUILD_TESTING)
