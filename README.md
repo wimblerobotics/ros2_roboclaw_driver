@@ -1,3 +1,5 @@
+See the improved driver at https://github.com/wimblerobotics/roboclaw_driver
+
 # ros2_roboclaw_driver
 This is a driver for the RoboClaw family of devices for use under ROS2. 
 This driver is hard coded to use a pair of motors, presumed to be in a
