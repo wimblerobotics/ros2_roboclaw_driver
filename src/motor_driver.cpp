@@ -133,9 +133,9 @@ void MotorDriver::cmdVelCallback(
       RoboClaw::singleton()->stop();
     } else if ((fabs(x_velocity) > 0.01) || (fabs(yaw_velocity) > 0.01)) {
       const double m1_desired_velocity =
-          x_velocity - (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
+          x_velocity - (yaw_velocity * wheel_separation_ / 2.0);
       const double m2_desired_velocity =
-          x_velocity + (yaw_velocity * wheel_separation_ / 2.0) / wheel_radius_;
+          x_velocity + (yaw_velocity * wheel_separation_ / 2.0);
 
       const int32_t m1_quad_pulses_per_second =
           m1_desired_velocity * quad_pulses_per_meter_;
